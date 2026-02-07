@@ -1,4 +1,20 @@
+# Build output
 out/
+*.js.map
+
+# Dependencies
 node_modules/
+
+# VS Code extension packaging
 *.vsix
 .vscode-test/
+
+# IDE settings
+.vscode/
+
+# Binary plan doc (markdown version tracked instead)
+*.docx
+
+# OS files
+.DS_Store
+Thumbs.db
