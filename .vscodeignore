@@ -1,0 +1,13 @@
+.vscode/**
+src/**
+out/test/**
+test-fixtures/**
+node_modules/**
+.gitignore
+tsconfig.json
+*.map
+.beads/**
+SCHEMA-VERIFICATION.md
+agent-teams-monitor-plan.md
+agent-teams-monitor-plan.docx
+AGENTS.md

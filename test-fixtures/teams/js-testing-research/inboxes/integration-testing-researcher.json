@@ -1,0 +1,29 @@
+[
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"permission_response\",\"request_id\":\"perm-1770504248712-19jl7ge\",\"approve\":true}",
+    "summary": "Approve web search permission",
+    "timestamp": "2026-02-07T22:44:19.431Z",
+    "read": true
+  },
+  {
+    "from": "team-lead",
+    "text": "Excellent research! Thank you for the comprehensive analysis. Please standby while I wait for the unit testing researcher to complete their work.",
+    "summary": "Great work, waiting for unit testing research",
+    "timestamp": "2026-02-07T22:45:10.182Z",
+    "read": true
+  },
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"shutdown_request\",\"requestId\":\"shutdown-1770504317407@integration-testing-researcher\",\"from\":\"team-lead\",\"reason\":\"Thank you for the comprehensive research on integration testing frameworks. Your work is complete - requesting graceful shutdown.\",\"timestamp\":\"2026-02-07T22:45:17.407Z\"}",
+    "timestamp": "2026-02-07T22:45:17.407Z",
+    "read": true
+  },
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"permission_response\",\"request_id\":\"shutdown-1770504317407@integration-testing-researcher\",\"approve\":true}",
+    "summary": "Approve shutdown",
+    "timestamp": "2026-02-07T22:45:21.707Z",
+    "read": false
+  }
+]

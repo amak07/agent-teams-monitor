@@ -1,0 +1,96 @@
+{
+  "name": "agent-teams-monitor",
+  "displayName": "Agent Teams Monitor",
+  "description": "Monitor Claude Code Agent Teams in VS Code — see agents, tasks, and messages without tmux",
+  "version": "0.1.0",
+  "publisher": "abel-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "agent-teams",
+    "ai-agents",
+    "anthropic",
+    "tmux",
+    "multi-agent",
+    "swarm",
+    "opus"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agent-teams",
+          "title": "Agent Teams",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agent-teams": [
+        {
+          "id": "agentTeams.agents",
+          "name": "Agents"
+        },
+        {
+          "id": "agentTeams.tasks",
+          "name": "Tasks"
+        },
+        {
+          "id": "agentTeams.messages",
+          "name": "Messages"
+        }
+      ]
+    },
+    "viewsWelcome": {
+      "agentTeams.agents": [
+        {
+          "contents": "No Agent Teams detected.\n\nStart an Agent Team in Claude Code to see it here.\n\nRequires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 in settings.\n\n[Learn More](https://code.claude.com/docs/en/agent-teams)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "agentTeams.refresh",
+        "title": "Refresh Agent Teams",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "agentTeams.focus",
+        "title": "Focus Agent Teams Panel"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentTeams.refresh",
+          "when": "view == agentTeams.agents",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "prepackage": "npm run compile",
+    "package": "vsce package",
+    "mock": "node out/test/mockData.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.3.0"
+  }
+}

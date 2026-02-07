@@ -1,0 +1,53 @@
+[
+  {
+    "from": "unit-testing-researcher",
+    "text": "{\"type\":\"permission_request\",\"request_id\":\"perm-1770504247092-piasa4m\",\"agent_id\":\"unit-testing-researcher\",\"tool_name\":\"WebSearch\",\"tool_use_id\":\"toolu_01WAuiMJLBnGjpr4M6nM2qkL\",\"description\":\"Claude wants to search the web for: top JavaScript unit testing frameworks 2026 popularity comparison\",\"input\":{\"query\":\"top JavaScript unit testing frameworks 2026 popularity comparison\"},\"permission_suggestions\":[]}",
+    "timestamp": "2026-02-07T22:44:07.093Z",
+    "color": "blue",
+    "read": true
+  },
+  {
+    "from": "integration-testing-researcher",
+    "text": "Excellent research! Here is my comprehensive analysis of the top 3 integration testing frameworks...",
+    "summary": "Web search denied - providing 2025 framework analysis",
+    "timestamp": "2026-02-07T22:45:04.351Z",
+    "color": "green",
+    "read": true
+  },
+  {
+    "from": "integration-testing-researcher",
+    "text": "{\"type\":\"idle_notification\",\"from\":\"integration-testing-researcher\",\"timestamp\":\"2026-02-07T22:45:09.707Z\",\"idleReason\":\"available\"}",
+    "timestamp": "2026-02-07T22:45:09.707Z",
+    "color": "green",
+    "read": true
+  },
+  {
+    "from": "unit-testing-researcher",
+    "text": "# Top 3 JavaScript Unit Testing Frameworks (2026)\n\nBased on my research, here are the top 3...",
+    "summary": "Research complete - Top 3 JS testing frameworks 2026",
+    "timestamp": "2026-02-07T22:45:10.964Z",
+    "color": "blue",
+    "read": true
+  },
+  {
+    "from": "unit-testing-researcher",
+    "text": "{\"type\":\"idle_notification\",\"from\":\"unit-testing-researcher\",\"timestamp\":\"2026-02-07T22:45:17.249Z\",\"idleReason\":\"available\"}",
+    "timestamp": "2026-02-07T22:45:17.249Z",
+    "color": "blue",
+    "read": false
+  },
+  {
+    "from": "unit-testing-researcher",
+    "text": "{\"type\":\"shutdown_approved\",\"requestId\":\"shutdown-1770504316743@unit-testing-researcher\",\"from\":\"unit-testing-researcher\",\"timestamp\":\"2026-02-07T22:45:19.856Z\",\"paneId\":\"in-process\",\"backendType\":\"in-process\"}",
+    "timestamp": "2026-02-07T22:45:19.856Z",
+    "color": "blue",
+    "read": false
+  },
+  {
+    "from": "integration-testing-researcher",
+    "text": "{\"type\":\"shutdown_approved\",\"requestId\":\"shutdown-1770504317407@integration-testing-researcher\",\"from\":\"integration-testing-researcher\",\"timestamp\":\"2026-02-07T22:45:19.913Z\",\"paneId\":\"in-process\",\"backendType\":\"in-process\"}",
+    "timestamp": "2026-02-07T22:45:19.913Z",
+    "color": "green",
+    "read": false
+  }
+]

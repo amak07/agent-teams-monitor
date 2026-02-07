@@ -1,0 +1,22 @@
+[
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"permission_response\",\"request_id\":\"perm-1770504247092-piasa4m\",\"approve\":true}",
+    "summary": "Approve web search permission",
+    "timestamp": "2026-02-07T22:44:16.752Z",
+    "read": true
+  },
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"shutdown_request\",\"requestId\":\"shutdown-1770504316743@unit-testing-researcher\",\"from\":\"team-lead\",\"reason\":\"Thank you for the excellent research on unit testing frameworks. Your work is complete - requesting graceful shutdown.\",\"timestamp\":\"2026-02-07T22:45:16.743Z\"}",
+    "timestamp": "2026-02-07T22:45:16.743Z",
+    "read": true
+  },
+  {
+    "from": "team-lead",
+    "text": "{\"type\":\"permission_response\",\"request_id\":\"shutdown-1770504316743@unit-testing-researcher\",\"approve\":true}",
+    "summary": "Approve shutdown",
+    "timestamp": "2026-02-07T22:45:20.987Z",
+    "read": false
+  }
+]

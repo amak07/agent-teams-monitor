@@ -1,0 +1,47 @@
+{
+  "name": "js-testing-research",
+  "description": "Research top 3 JavaScript testing frameworks for unit and integration testing",
+  "createdAt": 1770504237598,
+  "leadAgentId": "team-lead@js-testing-research",
+  "leadSessionId": "86302705-7f60-4ade-9de2-618bda84fed9",
+  "members": [
+    {
+      "agentId": "team-lead@js-testing-research",
+      "name": "team-lead",
+      "agentType": "team-lead",
+      "model": "claude-sonnet-4-5-20250929",
+      "joinedAt": 1770504237598,
+      "tmuxPaneId": "",
+      "cwd": "c:\\Users\\abelm\\Projects\\agent-teams-monitor",
+      "subscriptions": []
+    },
+    {
+      "agentId": "unit-testing-researcher@js-testing-research",
+      "name": "unit-testing-researcher",
+      "agentType": "general-purpose",
+      "model": "sonnet",
+      "prompt": "Research and analyze the top 3 JavaScript unit testing frameworks as of 2026.",
+      "color": "blue",
+      "planModeRequired": false,
+      "joinedAt": 1770504244486,
+      "tmuxPaneId": "in-process",
+      "cwd": "c:\\Users\\abelm\\Projects\\agent-teams-monitor",
+      "subscriptions": [],
+      "backendType": "in-process"
+    },
+    {
+      "agentId": "integration-testing-researcher@js-testing-research",
+      "name": "integration-testing-researcher",
+      "agentType": "general-purpose",
+      "model": "sonnet",
+      "prompt": "Research and analyze the top 3 JavaScript integration testing frameworks as of 2026.",
+      "color": "green",
+      "planModeRequired": false,
+      "joinedAt": 1770504246535,
+      "tmuxPaneId": "in-process",
+      "cwd": "c:\\Users\\abelm\\Projects\\agent-teams-monitor",
+      "subscriptions": [],
+      "backendType": "in-process"
+    }
+  ]
+}
