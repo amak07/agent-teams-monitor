@@ -58,6 +58,9 @@ export class SessionArchiver {
     const snapshot = this.snapshots.get(teamName);
     if (!snapshot) { return; }
 
+    // Skip archiving replayed sessions
+    if (this.state.replayMode) { this.snapshots.delete(teamName); return; }
+
     // Archive the last known state
     this.archiveSession(teamName, snapshot.config, snapshot.firstSeen);
     this.snapshots.delete(teamName);

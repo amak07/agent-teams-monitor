@@ -18,6 +18,9 @@ node_modules/
 # Claude Code local settings
 .claude/
 
+# Session recordings (large, local-only)
+recordings/
+
 # OS files
 .DS_Store
 Thumbs.db

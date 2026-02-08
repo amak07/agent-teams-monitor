@@ -31,7 +31,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeEleme
 
   constructor(private state: TeamStateManager) {
     state.onDidChange(e => {
-      if (e.type === 'teamUpdated' || e.type === 'teamRemoved') {
+      if (e.type === 'teamUpdated' || e.type === 'teamRemoved' || e.type === 'messageReceived') {
         this._onDidChangeTreeData.fire(undefined);
       }
     });
@@ -77,10 +77,14 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeEleme
   private getMemberItem(node: MemberNode): vscode.TreeItem {
     const { member } = node;
     const lead = isTeamLead(member);
+    const lifecycle = lead ? 'active' : this.state.getAgentLifecycleState(node.teamName, member.name);
     const item = new vscode.TreeItem(member.name, vscode.TreeItemCollapsibleState.None);
 
-    // Description: agent type + model
+    // Description: lifecycle + agent type + model
     const parts: string[] = [];
+    if (lifecycle !== 'active') {
+      parts.push(lifecycle.replace('_', ' '));
+    }
     if (member.agentType && member.agentType !== 'team-lead') {
       parts.push(member.agentType);
     }
@@ -89,9 +93,15 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeEleme
     }
     item.description = parts.join(' · ');
 
-    // Icon: crown for lead, colored circle for teammates
+    // Icon based on lifecycle state
     if (lead) {
-      item.iconPath = new vscode.ThemeIcon('circle-filled', new vscode.ThemeColor('charts.yellow'));
+      item.iconPath = new vscode.ThemeIcon('star-full', new vscode.ThemeColor('charts.yellow'));
+    } else if (lifecycle === 'shutdown') {
+      item.iconPath = new vscode.ThemeIcon('circle-outline', new vscode.ThemeColor('disabledForeground'));
+    } else if (lifecycle === 'shutting_down') {
+      item.iconPath = new vscode.ThemeIcon('sign-out', new vscode.ThemeColor('charts.orange'));
+    } else if (lifecycle === 'idle') {
+      item.iconPath = new vscode.ThemeIcon('clock', new vscode.ThemeColor('charts.yellow'));
     } else {
       const colorId = member.color ? COLOR_MAP[member.color] : undefined;
       item.iconPath = new vscode.ThemeIcon(
@@ -102,6 +112,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeEleme
 
     // Tooltip with details
     const tipLines = [`Agent: ${member.name}`];
+    tipLines.push(`Status: ${lifecycle.replace('_', ' ')}`);
     if (member.agentType) { tipLines.push(`Type: ${member.agentType}`); }
     if (member.model) { tipLines.push(`Model: ${member.model}`); }
     if (member.cwd) { tipLines.push(`CWD: ${member.cwd}`); }

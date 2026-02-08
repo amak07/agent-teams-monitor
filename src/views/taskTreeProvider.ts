@@ -36,7 +36,7 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
   constructor(private state: TeamStateManager) {
     vscode.commands.executeCommand('setContext', 'agentTeams.tasks.groupedByAgent', true);
     state.onDidChange(e => {
-      if (e.type === 'taskUpdated' || e.type === 'teamUpdated' || e.type === 'teamRemoved') {
+      if (e.type === 'taskUpdated' || e.type === 'teamUpdated' || e.type === 'teamRemoved' || e.type === 'messageReceived') {
         this._onDidChangeTreeData.fire(undefined);
       }
     });
@@ -113,7 +113,7 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
 
   private getTeamGroupItem(group: TeamTaskGroup): vscode.TreeItem {
     const tasks = this.state.getTasks(group.teamName);
-    const completed = tasks.filter(t => t.status === 'completed').length;
+    const completed = tasks.filter(t => this.state.getEffectiveTaskStatus(group.teamName, t) === 'completed').length;
     const item = new vscode.TreeItem(
       group.teamName,
       vscode.TreeItemCollapsibleState.Expanded
@@ -126,8 +126,8 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
   private getAgentGroupItem(group: AgentTaskGroup): vscode.TreeItem {
     const tasks = this.state.getTasks(group.teamName)
       .filter(t => t.subject === group.agentName);
-    const completed = tasks.filter(t => t.status === 'completed').length;
-    const inProgress = tasks.filter(t => t.status === 'in_progress').length;
+    const completed = tasks.filter(t => this.state.getEffectiveTaskStatus(group.teamName, t) === 'completed').length;
+    const inProgress = tasks.filter(t => this.state.getEffectiveTaskStatus(group.teamName, t) === 'in_progress').length;
     const pending = tasks.length - completed - inProgress;
 
     const item = new vscode.TreeItem(
@@ -141,7 +141,7 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
     if (pending > 0) { parts.push(`${pending} pending`); }
     item.description = parts.join(', ');
 
-    item.iconPath = new vscode.ThemeIcon('account');
+    item.iconPath = new vscode.ThemeIcon('person');
     item.contextValue = 'agentTaskGroup';
     return item;
   }
@@ -167,11 +167,12 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
     }
     item.description = descParts.join(' — ');
 
-    // Icon based on status
+    // Icon based on effective status
+    const effectiveStatus = this.state.getEffectiveTaskStatus(node.teamName, task);
     if (blocked) {
       item.iconPath = new vscode.ThemeIcon('lock', new vscode.ThemeColor('charts.yellow'));
     } else {
-      const statusInfo = STATUS_ICONS[task.status] ?? STATUS_ICONS.pending;
+      const statusInfo = STATUS_ICONS[effectiveStatus] ?? STATUS_ICONS.pending;
       item.iconPath = new vscode.ThemeIcon(
         statusInfo.icon,
         statusInfo.color ? new vscode.ThemeColor(statusInfo.color) : undefined
@@ -181,18 +182,18 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
     // Tooltip
     const tipLines = [
       `Task #${task.id}: ${task.subject}`,
-      `Status: ${task.status}`,
+      `Status: ${effectiveStatus}${effectiveStatus !== task.status ? ` (was ${task.status})` : ''}`,
     ];
     if (task.description) { tipLines.push(`Description: ${task.description}`); }
     if (task.blockedBy.length) { tipLines.push(`Blocked by: #${task.blockedBy.join(', #')}`); }
     if (task.blocks.length) { tipLines.push(`Blocks: #${task.blocks.join(', #')}`); }
     item.tooltip = tipLines.join('\n');
 
-    // Click to open full task details
+    // Click to open in dashboard
     item.command = {
       command: 'agentTeams.showTask',
       title: 'Show Task Details',
-      arguments: [task],
+      arguments: [task, node.teamName],
     };
 
     item.contextValue = 'task';

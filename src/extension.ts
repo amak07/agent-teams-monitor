@@ -6,39 +6,18 @@ import { TaskTreeProvider } from './views/taskTreeProvider';
 import { MessageTreeProvider } from './views/messageTreeProvider';
 import { StatusBarManager } from './statusBar/statusBarItem';
 import { SessionArchiver } from './history/sessionArchiver';
+import { ReplayManager } from './replay/replayManager';
 import { DashboardPanel } from './views/dashboardPanel';
-import { AgentTask, InboxEntry, parseTypedMessage } from './types';
-
-const SCHEME = 'agent-teams';
-
-// Readonly content provider for message and task detail documents
-class AgentTeamsContentProvider implements vscode.TextDocumentContentProvider {
-  private contents = new Map<string, string>();
-
-  setContent(uri: vscode.Uri, content: string): void {
-    this.contents.set(uri.toString(), content);
-  }
-
-  provideTextDocumentContent(uri: vscode.Uri): string {
-    return this.contents.get(uri.toString()) || '';
-  }
-}
-
-let docCounter = 0;
-const contentProvider = new AgentTeamsContentProvider();
+import { AgentTask, InboxEntry } from './types';
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Agent Teams Monitor is now active');
-
-  // Register readonly content provider
-  context.subscriptions.push(
-    vscode.workspace.registerTextDocumentContentProvider(SCHEME, contentProvider)
-  );
 
   // Core state
   const state = new TeamStateManager();
   const watcher = new FileWatcher(state);
   const archiver = new SessionArchiver(state);
+  const replayManager = new ReplayManager(state);
 
   // Set workspace paths for filtering
   const folders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
@@ -73,15 +52,22 @@ export function activate(context: vscode.ExtensionContext) {
       agentTree.refresh();
       taskTree.refresh();
       messageTree.refresh();
+      vscode.window.setStatusBarMessage('Agent team files re-scanned', 2000);
     }),
     vscode.commands.registerCommand('agentTeams.focus', () => {
       vscode.commands.executeCommand('agentTeams.agents.focus');
     }),
-    vscode.commands.registerCommand('agentTeams.showMessage', (entry: InboxEntry) => {
-      showMessageDocument(entry);
+    vscode.commands.registerCommand('agentTeams.showMessage', (entry: InboxEntry, teamName: string) => {
+      const dashboard = DashboardPanel.createOrShow(state);
+      if (teamName) {
+        dashboard.scrollTo('message', `${entry.from}-${entry.timestamp}`, teamName);
+      }
     }),
-    vscode.commands.registerCommand('agentTeams.showTask', (task: AgentTask) => {
-      showTaskDocument(task);
+    vscode.commands.registerCommand('agentTeams.showTask', (task: AgentTask, teamName: string) => {
+      const dashboard = DashboardPanel.createOrShow(state);
+      if (teamName) {
+        dashboard.scrollTo('task', task.id, teamName);
+      }
     }),
     vscode.commands.registerCommand('agentTeams.tasks.groupByAgent', () => {
       taskTree.setGroupByAgent(true);
@@ -104,6 +90,23 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('agentTeams.toggleShowWorkspace', () => {
       state.setShowAll(false);
     }),
+    vscode.commands.registerCommand('agentTeams.cleanTeam', async (node: { config?: { name?: string } }) => {
+      const teamName = node?.config?.name;
+      if (!teamName) { return; }
+      const choice = await vscode.window.showWarningMessage(
+        `Remove all files for team "${teamName}" from disk?`,
+        'Remove', 'Cancel'
+      );
+      if (choice === 'Remove') {
+        watcher.cleanTeam(teamName);
+      }
+    }),
+    vscode.commands.registerCommand('agentTeams.replaySession', () => {
+      replayManager.startReplay();
+    }),
+    vscode.commands.registerCommand('agentTeams.stopReplay', () => {
+      replayManager.stopReplay();
+    }),
   );
 
   // Start watching
@@ -118,62 +121,8 @@ export function activate(context: vscode.ExtensionContext) {
     { dispose: () => messageTree.dispose() },
     { dispose: () => statusBar.dispose() },
     { dispose: () => archiver.dispose() },
+    { dispose: () => replayManager.dispose() },
   );
-}
-
-async function openReadonlyDocument(name: string, content: string): Promise<void> {
-  const uri = vscode.Uri.parse(`${SCHEME}:${name}-${++docCounter}`);
-  contentProvider.setContent(uri, content);
-  const doc = await vscode.workspace.openTextDocument(uri);
-  await vscode.window.showTextDocument(doc, { preview: true });
-}
-
-async function showMessageDocument(entry: InboxEntry): Promise<void> {
-  const typed = parseTypedMessage(entry.text);
-  let content: string;
-
-  if (typed) {
-    content = [
-      `From: ${entry.from}`,
-      `Time: ${entry.timestamp}`,
-      `Type: ${typed.type}`,
-      entry.summary ? `Summary: ${entry.summary}` : '',
-      '',
-      '--- Typed Message ---',
-      JSON.stringify(typed, null, 2),
-    ].filter(Boolean).join('\n');
-  } else {
-    content = [
-      `From: ${entry.from}`,
-      `Time: ${entry.timestamp}`,
-      entry.summary ? `Summary: ${entry.summary}` : '',
-      '',
-      '--- Message ---',
-      entry.text,
-    ].filter(Boolean).join('\n');
-  }
-
-  await openReadonlyDocument(`message-from-${entry.from}`, content);
-}
-
-async function showTaskDocument(task: AgentTask): Promise<void> {
-  const lines = [
-    `Task #${task.id}`,
-    `Agent: ${task.subject}`,
-    `Status: ${task.status}`,
-    '',
-    '--- Description ---',
-    task.description,
-  ];
-
-  if (task.blockedBy.length > 0) {
-    lines.push('', `Blocked by: #${task.blockedBy.join(', #')}`);
-  }
-  if (task.blocks.length > 0) {
-    lines.push('', `Blocks: #${task.blocks.join(', #')}`);
-  }
-
-  await openReadonlyDocument(`task-${task.id}`, lines.join('\n'));
 }
 
 export function deactivate() {

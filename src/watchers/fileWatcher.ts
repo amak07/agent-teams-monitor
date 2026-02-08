@@ -175,6 +175,8 @@ export class FileWatcher {
       const teamDirs = fs.readdirSync(TEAMS_DIR, { withFileTypes: true })
         .filter(d => d.isDirectory());
 
+      const dirsOnDisk = new Set(teamDirs.map(d => d.name));
+
       for (const dir of teamDirs) {
         const configPath = path.join(TEAMS_DIR, dir.name, 'config.json');
         if (fs.existsSync(configPath)) {
@@ -188,6 +190,13 @@ export class FileWatcher {
           for (const file of inboxFiles) {
             this.readInbox(path.join(inboxDir, file));
           }
+        }
+      }
+
+      // Remove teams from state that no longer exist on disk
+      for (const teamName of this.state.getTeamNames()) {
+        if (!dirsOnDisk.has(teamName)) {
+          this.state.removeTeam(teamName);
         }
       }
     } catch {
@@ -211,6 +220,16 @@ export class FileWatcher {
     } catch {
       // Directory may have been removed
     }
+  }
+
+  // --- Cleanup ---
+
+  cleanTeam(teamName: string): void {
+    const teamDir = path.join(TEAMS_DIR, teamName);
+    const taskDir = path.join(TASKS_DIR, teamName);
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    try { fs.rmSync(taskDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    this.state.removeTeam(teamName);
   }
 
   // --- Lifecycle ---

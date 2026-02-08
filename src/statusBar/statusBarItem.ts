@@ -29,7 +29,7 @@ export class StatusBarManager {
     for (const team of teams) {
       const tasks = this.state.getTasks(team.name);
       totalTasks += tasks.length;
-      remainingTasks += tasks.filter(t => t.status !== 'completed').length;
+      remainingTasks += tasks.filter(t => this.state.getEffectiveTaskStatus(team.name, t) !== 'completed').length;
     }
 
     const parts = [`$(hubot) ${totalAgents} agent${totalAgents !== 1 ? 's' : ''}`];

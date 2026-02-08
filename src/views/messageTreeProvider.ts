@@ -36,10 +36,10 @@ function getTypeIcon(typed: TypedMessage): vscode.ThemeIcon {
   switch (typed.type) {
     case 'permission_request': return new vscode.ThemeIcon('shield');
     case 'permission_response': return new vscode.ThemeIcon('shield');
-    case 'idle_notification': return new vscode.ThemeIcon('debug-pause');
-    case 'shutdown_request': return new vscode.ThemeIcon('debug-stop');
-    case 'shutdown_approved': return new vscode.ThemeIcon('debug-stop');
-    case 'plan_approval_request': return new vscode.ThemeIcon('notebook');
+    case 'idle_notification': return new vscode.ThemeIcon('clock');
+    case 'shutdown_request': return new vscode.ThemeIcon('sign-out');
+    case 'shutdown_approved': return new vscode.ThemeIcon('sign-out');
+    case 'plan_approval_request': return new vscode.ThemeIcon('request-changes');
     default: return new vscode.ThemeIcon('comment');
   }
 }
@@ -196,11 +196,11 @@ export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeE
     }
     item.tooltip = new vscode.MarkdownString('```\n' + tipLines.join('\n') + '\n```');
 
-    // Click to open full message in a virtual document
+    // Click to open in dashboard
     item.command = {
       command: 'agentTeams.showMessage',
       title: 'Show Full Message',
-      arguments: [entry],
+      arguments: [entry, node.teamName],
     };
 
     item.contextValue = typed ? `message.${typed.type}` : 'message.text';

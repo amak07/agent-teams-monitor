@@ -52,17 +52,24 @@
         }
       ]
     },
-    "viewsWelcome": {
-      "agentTeams.agents": [
-        {
-          "contents": "No Agent Teams detected.\n\nStart an Agent Team in Claude Code to see it here.\n\nRequires CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1 in settings.\n\n[Learn More](https://code.claude.com/docs/en/agent-teams)"
-        }
-      ]
-    },
+    "viewsWelcome": [
+      {
+        "view": "agentTeams.agents",
+        "contents": "No active Agent Teams.\n\nWhen you start an Agent Team session in Claude Code, agents, tasks, and messages will appear here in real time.\n\n[Replay a Recording](command:agentTeams.replaySession)\n\n[Learn More about Agent Teams](https://docs.anthropic.com/en/docs/claude-code/agent-teams)"
+      },
+      {
+        "view": "agentTeams.tasks",
+        "contents": "No tasks to display.\n\nTasks appear when an Agent Team assigns work to its members."
+      },
+      {
+        "view": "agentTeams.messages",
+        "contents": "No messages to display.\n\nMessages appear when agents communicate within a team."
+      }
+    ],
     "commands": [
       {
         "command": "agentTeams.refresh",
-        "title": "Refresh Agent Teams",
+        "title": "Re-scan Agent Team Files",
         "icon": "$(refresh)"
       },
       {
@@ -100,7 +107,7 @@
       {
         "command": "agentTeams.openDashboard",
         "title": "Open Agent Teams Dashboard",
-        "icon": "$(open-preview)"
+        "icon": "$(home)"
       },
       {
         "command": "agentTeams.toggleShowAll",
@@ -111,6 +118,24 @@
         "command": "agentTeams.toggleShowWorkspace",
         "title": "Show Workspace Teams Only",
         "icon": "$(home)"
+      },
+      {
+        "command": "agentTeams.replaySession",
+        "title": "Replay Recorded Session",
+        "category": "Agent Teams",
+        "icon": "$(play)"
+      },
+      {
+        "command": "agentTeams.stopReplay",
+        "title": "Stop Replay",
+        "category": "Agent Teams",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "agentTeams.cleanTeam",
+        "title": "Clean Up Team Files",
+        "category": "Agent Teams",
+        "icon": "$(trash)"
       }
     ],
     "menus": {
@@ -121,13 +146,13 @@
           "group": "navigation"
         },
         {
-          "command": "agentTeams.toggleShowAll",
-          "when": "view == agentTeams.agents && !agentTeams.showingAll",
+          "command": "agentTeams.replaySession",
+          "when": "view == agentTeams.agents && !agentTeams.replaying",
           "group": "navigation"
         },
         {
-          "command": "agentTeams.toggleShowWorkspace",
-          "when": "view == agentTeams.agents && agentTeams.showingAll",
+          "command": "agentTeams.stopReplay",
+          "when": "view == agentTeams.agents && agentTeams.replaying",
           "group": "navigation"
         },
         {
@@ -155,6 +180,13 @@
           "when": "view == agentTeams.messages && agentTeams.messages.groupedByInbox",
           "group": "navigation"
         }
+      ],
+      "view/item/context": [
+        {
+          "command": "agentTeams.cleanTeam",
+          "when": "viewItem == team",
+          "group": "inline"
+        }
       ]
     }
   },
@@ -164,7 +196,9 @@
     "prepackage": "npm run compile",
     "package": "vsce package",
     "mock": "node out/test/mockData.js",
-    "mock:clean": "node out/test/mockData.js clean"
+    "mock:clean": "node out/test/mockData.js clean",
+    "record": "node out/scripts/record.js",
+    "replay": "node out/scripts/replay.js"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
