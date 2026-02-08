@@ -21,6 +21,9 @@ node_modules/
 # Session recordings (large, local-only)
 recordings/
 
+# Archived session history (local-only)
+.agent-teams-history/
+
 # OS files
 .DS_Store
 Thumbs.db
