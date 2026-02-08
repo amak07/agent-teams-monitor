@@ -68,13 +68,91 @@
       {
         "command": "agentTeams.focus",
         "title": "Focus Agent Teams Panel"
+      },
+      {
+        "command": "agentTeams.showMessage",
+        "title": "Show Full Message"
+      },
+      {
+        "command": "agentTeams.showTask",
+        "title": "Show Task Details"
+      },
+      {
+        "command": "agentTeams.tasks.groupByAgent",
+        "title": "Group Tasks by Agent",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "agentTeams.tasks.groupByTimeline",
+        "title": "Show Tasks by Timeline",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "agentTeams.messages.groupByInbox",
+        "title": "Group Messages by Inbox",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "agentTeams.messages.groupByTimeline",
+        "title": "Show Messages by Timeline",
+        "icon": "$(list-flat)"
+      },
+      {
+        "command": "agentTeams.openDashboard",
+        "title": "Open Agent Teams Dashboard",
+        "icon": "$(open-preview)"
+      },
+      {
+        "command": "agentTeams.toggleShowAll",
+        "title": "Show All Teams",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "agentTeams.toggleShowWorkspace",
+        "title": "Show Workspace Teams Only",
+        "icon": "$(home)"
       }
     ],
     "menus": {
       "view/title": [
         {
+          "command": "agentTeams.openDashboard",
+          "when": "view =~ /^agentTeams\\./",
+          "group": "navigation"
+        },
+        {
+          "command": "agentTeams.toggleShowAll",
+          "when": "view == agentTeams.agents && !agentTeams.showingAll",
+          "group": "navigation"
+        },
+        {
+          "command": "agentTeams.toggleShowWorkspace",
+          "when": "view == agentTeams.agents && agentTeams.showingAll",
+          "group": "navigation"
+        },
+        {
           "command": "agentTeams.refresh",
           "when": "view == agentTeams.agents",
+          "group": "navigation"
+        },
+        {
+          "command": "agentTeams.tasks.groupByAgent",
+          "when": "view == agentTeams.tasks && !agentTeams.tasks.groupedByAgent",
+          "group": "navigation"
+        },
+        {
+          "command": "agentTeams.tasks.groupByTimeline",
+          "when": "view == agentTeams.tasks && agentTeams.tasks.groupedByAgent",
+          "group": "navigation"
+        },
+        {
+          "command": "agentTeams.messages.groupByInbox",
+          "when": "view == agentTeams.messages && !agentTeams.messages.groupedByInbox",
+          "group": "navigation"
+        },
+        {
+          "command": "agentTeams.messages.groupByTimeline",
+          "when": "view == agentTeams.messages && agentTeams.messages.groupedByInbox",
           "group": "navigation"
         }
       ]
@@ -85,7 +163,8 @@
     "watch": "tsc -watch -p ./",
     "prepackage": "npm run compile",
     "package": "vsce package",
-    "mock": "node out/test/mockData.js"
+    "mock": "node out/test/mockData.js",
+    "mock:clean": "node out/test/mockData.js clean"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

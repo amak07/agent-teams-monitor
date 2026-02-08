@@ -15,6 +15,9 @@ node_modules/
 # Binary plan doc (markdown version tracked instead)
 *.docx
 
+# Claude Code local settings
+.claude/
+
 # OS files
 .DS_Store
 Thumbs.db
