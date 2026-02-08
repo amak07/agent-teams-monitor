@@ -31,7 +31,7 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeEleme
 
   constructor(private state: TeamStateManager) {
     state.onDidChange(e => {
-      if (e.type === 'teamUpdated' || e.type === 'teamRemoved' || e.type === 'messageReceived') {
+      if (e.type === 'teamAdded' || e.type === 'teamUpdated' || e.type === 'teamRemoved' || e.type === 'messageReceived') {
         this._onDidChangeTreeData.fire(undefined);
       }
     });

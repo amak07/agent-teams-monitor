@@ -39,12 +39,40 @@ export function activate(context: vscode.ExtensionContext) {
   // Status bar
   const statusBar = new StatusBarManager(state);
 
-  // Register tree view providers
-  context.subscriptions.push(
-    vscode.window.registerTreeDataProvider('agentTeams.agents', agentTree),
-    vscode.window.registerTreeDataProvider('agentTeams.tasks', taskTree),
-    vscode.window.registerTreeDataProvider('agentTeams.messages', messageTree),
-  );
+  // Create tree views (need TreeView refs for badge API)
+  const agentsView = vscode.window.createTreeView('agentTeams.agents', { treeDataProvider: agentTree });
+  const tasksView = vscode.window.createTreeView('agentTeams.tasks', { treeDataProvider: taskTree });
+  const messagesView = vscode.window.createTreeView('agentTeams.messages', { treeDataProvider: messageTree });
+  context.subscriptions.push(agentsView, tasksView, messagesView);
+
+  // Activity bar badge: show count of active teams
+  const updateBadge = () => {
+    const count = state.getFilteredTeams().length;
+    agentsView.badge = count > 0
+      ? { value: count, tooltip: `${count} active team${count !== 1 ? 's' : ''}` }
+      : undefined;
+  };
+
+  // Team lifecycle notifications (suppressed during initial scan and replay)
+  let notificationsReady = false;
+  state.onDidChange(e => {
+    if (e.type === 'teamAdded' || e.type === 'teamUpdated' || e.type === 'teamRemoved') {
+      updateBadge();
+    }
+    if (!notificationsReady || state.replayMode) { return; }
+    if (e.type === 'teamAdded') {
+      vscode.window.showInformationMessage(
+        `Agent Team '${e.teamName}' started`,
+        'Open Dashboard'
+      ).then(choice => {
+        if (choice === 'Open Dashboard') {
+          vscode.commands.executeCommand('agentTeams.openDashboard');
+        }
+      });
+    } else if (e.type === 'teamRemoved') {
+      vscode.window.showInformationMessage(`Agent Team '${e.teamName}' ended`);
+    }
+  });
 
   // Register commands
   context.subscriptions.push(
@@ -111,6 +139,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Start watching
   watcher.start();
+
+  // Enable notifications after initial scan completes (avoid spam on activation)
+  setTimeout(() => { notificationsReady = true; }, 2000);
 
   // Register disposables
   context.subscriptions.push(

@@ -36,7 +36,7 @@ export class TaskTreeProvider implements vscode.TreeDataProvider<TaskTreeElement
   constructor(private state: TeamStateManager) {
     vscode.commands.executeCommand('setContext', 'agentTeams.tasks.groupedByAgent', true);
     state.onDidChange(e => {
-      if (e.type === 'taskUpdated' || e.type === 'teamUpdated' || e.type === 'teamRemoved' || e.type === 'messageReceived') {
+      if (e.type === 'taskUpdated' || e.type === 'teamAdded' || e.type === 'teamUpdated' || e.type === 'teamRemoved' || e.type === 'messageReceived') {
         this._onDidChangeTreeData.fire(undefined);
       }
     });

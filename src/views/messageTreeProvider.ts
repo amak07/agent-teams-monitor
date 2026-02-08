@@ -61,7 +61,7 @@ export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeE
   constructor(private state: TeamStateManager) {
     vscode.commands.executeCommand('setContext', 'agentTeams.messages.groupedByInbox', false);
     state.onDidChange(e => {
-      if (e.type === 'messageReceived' || e.type === 'teamRemoved') {
+      if (e.type === 'messageReceived' || e.type === 'teamAdded' || e.type === 'teamRemoved') {
         this._onDidChangeTreeData.fire(undefined);
       }
     });

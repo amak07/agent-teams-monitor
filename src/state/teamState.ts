@@ -3,6 +3,7 @@ import * as path from 'path';
 import { TeamConfig, AgentTask, InboxEntry, parseTypedMessage, isTeamLead } from '../types';
 
 type TeamStateEvent =
+  | { type: 'teamAdded'; teamName: string }
   | { type: 'teamUpdated'; teamName: string }
   | { type: 'teamRemoved'; teamName: string }
   | { type: 'taskUpdated'; teamName: string; task: AgentTask }
@@ -33,7 +34,7 @@ export class TeamStateManager {
       config = { ...config, members: [...knownMembers.values()] };
     }
     this.teams.set(name, config);
-    this._onDidChange.fire({ type: 'teamUpdated', teamName: name });
+    this._onDidChange.fire({ type: existing ? 'teamUpdated' : 'teamAdded', teamName: name });
   }
 
   removeTeam(name: string): void {
