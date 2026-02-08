@@ -463,7 +463,7 @@ export class DashboardPanel {
       align-items: center;
     }
     .team-stats > span {
-      opacity: 0.6;
+      opacity: 0.8;
     }
     .team-status-badge {
       font-size: 0.75em;
@@ -502,11 +502,8 @@ export class DashboardPanel {
       color: var(--vscode-foreground);
       border-radius: 4px;
       cursor: pointer;
-      opacity: 0;
-      transition: opacity 150ms, background 150ms;
-    }
-    .team-header:hover .team-action-btn {
       opacity: 0.5;
+      transition: opacity 150ms, background 150ms;
     }
     .team-action-btn:hover {
       opacity: 1 !important;
