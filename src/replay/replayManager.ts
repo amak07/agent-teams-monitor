@@ -114,6 +114,15 @@ export class ReplayManager implements vscode.Disposable {
     this.state.replayMode = true;
     vscode.commands.executeCommand('setContext', 'agentTeams.replaying', true);
 
+    const speedLabel = speed === 0 ? 'instant' : `${speed}x`;
+    const recLabel = recordingCount > 1 ? `${recordingCount} recordings` : '1 recording';
+    vscode.window.showInformationMessage(
+      `Replay started: ${recLabel}, ${frames.length} frames (${speedLabel})`,
+      'Stop Replay'
+    ).then(choice => {
+      if (choice === 'Stop Replay') { this.stopReplay(); }
+    });
+
     const token = this._cancellation.token;
     let prevElapsed = 0;
 
