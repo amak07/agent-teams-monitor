@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { Frame, Manifest } from './types';
 import { TeamStateManager } from '../state/teamState';
+import { TeamConfig, AgentTask, InboxEntry } from '../types';
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const TEAMS_DIR = path.join(CLAUDE_DIR, 'teams');
@@ -114,6 +115,9 @@ export class ReplayManager implements vscode.Disposable {
     this.state.replayMode = true;
     vscode.commands.executeCommand('setContext', 'agentTeams.replaying', true);
 
+    // Open dashboard so user sees replay immediately
+    vscode.commands.executeCommand('agentTeams.openDashboard');
+
     const speedLabel = speed === 0 ? 'instant' : `${speed}x`;
     const recLabel = recordingCount > 1 ? `${recordingCount} recordings` : '1 recording';
     vscode.window.showInformationMessage(
@@ -183,7 +187,7 @@ export class ReplayManager implements vscode.Disposable {
   }
 
   private writeFrame(frame: Frame): void {
-    // Write teams
+    // Write teams to disk + update state directly (bypass FileWatcher latency)
     for (const [teamName, teamData] of Object.entries(frame.teams)) {
       this._writtenTeams.add(teamName);
       const teamDir = path.join(TEAMS_DIR, teamName);
@@ -194,16 +198,18 @@ export class ReplayManager implements vscode.Disposable {
         path.join(teamDir, 'config.json'),
         JSON.stringify(teamData.config, null, 2)
       );
+      this.state.updateTeam((teamData.config as TeamConfig).name, teamData.config as TeamConfig);
 
       for (const [agentName, entries] of Object.entries(teamData.inboxes)) {
         fs.writeFileSync(
           path.join(inboxDir, `${agentName}.json`),
           JSON.stringify(entries, null, 2)
         );
+        this.state.setMessages(teamName, agentName, entries as InboxEntry[]);
       }
     }
 
-    // Write tasks
+    // Write tasks to disk + update state directly
     for (const [teamName, taskMap] of Object.entries(frame.tasks)) {
       this._writtenTeams.add(teamName);
       const taskDir = path.join(TASKS_DIR, teamName);
@@ -214,6 +220,7 @@ export class ReplayManager implements vscode.Disposable {
           path.join(taskDir, `${taskId}.json`),
           JSON.stringify(task, null, 2)
         );
+        this.state.updateTask(teamName, task as AgentTask);
       }
     }
   }

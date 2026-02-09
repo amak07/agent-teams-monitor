@@ -3,6 +3,13 @@ src/**
 out/test/**
 test-fixtures/**
 node_modules/**
+!node_modules/markdown-it/**
+!node_modules/argparse/**
+!node_modules/entities/**
+!node_modules/linkify-it/**
+!node_modules/mdurl/**
+!node_modules/punycode.js/**
+!node_modules/uc.micro/**
 .gitignore
 tsconfig.json
 *.map

@@ -201,9 +201,13 @@
     "replay": "node out/scripts/replay.js"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
     "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
   }
 }

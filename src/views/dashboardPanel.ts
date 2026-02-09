@@ -1,6 +1,9 @@
 import * as vscode from 'vscode';
+import MarkdownIt from 'markdown-it';
 import { TeamStateManager } from '../state/teamState';
 import { TeamConfig, TeamMember, AgentTask, InboxEntry, isTeamLead, parseTypedMessage } from '../types';
+
+const md = new MarkdownIt({ html: false, breaks: true, linkify: true });
 
 // Valid agent color names (used for CSS class mapping)
 const AGENT_COLORS = new Set(['blue', 'green', 'red', 'yellow', 'orange', 'purple']);
@@ -57,6 +60,11 @@ export class DashboardPanel {
       }
       if (msg.command === 'ready') {
         this._webviewReady = true;
+        // Push fresh data to close race between getHtml() snapshot and state changes
+        this.panel.webview.postMessage({
+          command: 'updateData',
+          data: this.getDataPayload(),
+        });
         if (this._pendingScrollTo) {
           const p = this._pendingScrollTo;
           this._pendingScrollTo = undefined;
@@ -178,16 +186,19 @@ export class DashboardPanel {
           }),
           tasks: tasks.map(t => {
             const effectiveStatus = this.state.getEffectiveTaskStatus(team.name, t);
-            const blocked = t.blockedBy.length > 0 && t.status === 'pending';
+            const blockedBy = t.blockedBy ?? [];
+            const blocks = t.blocks ?? [];
+            const blocked = blockedBy.length > 0 && t.status === 'pending';
             const statusClass = blocked ? 'blocked' : effectiveStatus;
             const badgeLabel = blocked ? 'blocked' : (effectiveStatus === 'in_progress' ? 'active' : (effectiveStatus === 'completed' ? 'done' : 'pending'));
             const agentColorName = memberColors[t.subject] || 'unknown';
             const member = team.members.find(m => m.name === t.subject);
-            const fullPrompt = member?.prompt || t.description;
+            const fullPrompt = member?.prompt || t.description || '';
             return {
-              id: t.id, subject: t.subject, description: t.description,
-              statusClass, badgeLabel, agentColorName, fullPrompt,
-              blockedBy: t.blockedBy, blocks: t.blocks,
+              id: t.id, subject: t.subject, description: t.description || '',
+              fullPromptHtml: formatPromptHtml(fullPrompt),
+              statusClass, badgeLabel, agentColorName,
+              blockedBy, blocks,
               teamName: team.name,
             };
           }),
@@ -217,6 +228,7 @@ export class DashboardPanel {
                 time: formatTime(entry.timestamp),
                 fromColor, badgeClass, badgeText,
                 preview, fullText, isTyped: !!typed,
+                fullTextHtml: typed ? '' : formatPromptHtml(entry.text),
                 teamName: team.name,
               };
             }),
@@ -285,7 +297,6 @@ export class DashboardPanel {
       --atm-status-orange: #e5a033;
       --atm-status-purple: #c678dd;
       --atm-overlay-subtle: rgba(255,255,255,0.08);
-      --atm-shutdown-opacity: 0.45;
 
       /* Agent colors (dark theme defaults) */
       --atm-agent-blue: #4a9eff;
@@ -305,7 +316,6 @@ export class DashboardPanel {
       --atm-status-orange: #b07a15;
       --atm-status-purple: #8b4dab;
       --atm-overlay-subtle: rgba(0,0,0,0.06);
-      --atm-shutdown-opacity: 0.50;
 
       --atm-agent-blue: #1a6fd1;
       --atm-agent-green: #2e8b2e;
@@ -324,7 +334,6 @@ export class DashboardPanel {
       --atm-status-orange: #ffaa33;
       --atm-status-purple: #d9a0f0;
       --atm-overlay-subtle: rgba(255,255,255,0.12);
-      --atm-shutdown-opacity: 0.55;
 
       --atm-agent-blue: #6cb6ff;
       --atm-agent-green: #73e673;
@@ -506,7 +515,7 @@ export class DashboardPanel {
       transition: opacity 150ms, background 150ms;
     }
     .team-action-btn:hover {
-      opacity: 1 !important;
+      opacity: 1;
       background: var(--vscode-toolbar-hoverBackground);
     }
     .team-action-btn svg {
@@ -536,12 +545,12 @@ export class DashboardPanel {
       padding: 4px 10px;
       border-radius: 12px;
       font-size: 0.85em;
-      background: var(--vscode-badge-background);
-      color: var(--vscode-badge-foreground);
-      transition: opacity 150ms;
+      background: transparent;
+      color: var(--vscode-foreground);
+      border: 1px solid var(--vscode-focusBorder);
     }
     .agent-chip.shutdown {
-      opacity: var(--atm-shutdown-opacity);
+      /* Full opacity — SHUTDOWN badge communicates status */
     }
     .agent-chip .dot {
       width: 8px;
@@ -732,7 +741,6 @@ export class DashboardPanel {
       line-height: 1.6;
       word-wrap: break-word;
       overflow-wrap: break-word;
-      white-space: pre-wrap;
       opacity: 0.85;
       margin-bottom: 6px;
     }
@@ -841,7 +849,6 @@ export class DashboardPanel {
       line-height: 1.6;
       word-wrap: break-word;
       overflow-wrap: break-word;
-      white-space: pre-wrap;
       max-width: 70ch;
       opacity: 0.8;
       border-top: 1px solid var(--vscode-panel-border);
@@ -856,6 +863,85 @@ export class DashboardPanel {
       overflow-x: auto;
       white-space: pre-wrap;
       word-wrap: break-word;
+    }
+
+    /* ===== Markdown content styles (from markdown-it) ===== */
+    .task-detail-desc p, .msg-detail-text p,
+    .task-desc-preview p {
+      margin: 0 0 8px 0;
+    }
+    .task-detail-desc p:last-child, .msg-detail-text p:last-child,
+    .task-desc-preview p:last-child {
+      margin-bottom: 0;
+    }
+    .task-detail-desc h1, .task-detail-desc h2,
+    .task-detail-desc h3, .task-detail-desc h4,
+    .msg-detail-text h1, .msg-detail-text h2,
+    .msg-detail-text h3, .msg-detail-text h4 {
+      margin: 10px 0 4px 0;
+      font-weight: 600;
+      color: var(--vscode-foreground);
+    }
+    .task-detail-desc h1, .msg-detail-text h1 { font-size: 1.25em; }
+    .task-detail-desc h2, .msg-detail-text h2 { font-size: 1.15em; }
+    .task-detail-desc h3, .msg-detail-text h3 { font-size: 1.05em; }
+    .task-detail-desc h4, .msg-detail-text h4 { font-size: 1.0em; }
+    .task-detail-desc ul, .task-detail-desc ol,
+    .msg-detail-text ul, .msg-detail-text ol {
+      margin: 4px 0;
+      padding-left: 24px;
+    }
+    .task-detail-desc li, .msg-detail-text li {
+      margin-bottom: 2px;
+    }
+    .task-detail-desc code, .msg-detail-text code,
+    .task-desc-preview code {
+      background: var(--vscode-textCodeBlock-background);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-family: var(--vscode-editor-font-family);
+      font-size: 0.9em;
+    }
+    .task-detail-desc pre code, .msg-detail-text pre code {
+      background: none;
+      padding: 0;
+    }
+    .task-detail-desc pre, .msg-detail-text pre {
+      font-family: var(--vscode-editor-font-family);
+      font-size: var(--vscode-editor-font-size);
+      background: var(--vscode-textCodeBlock-background);
+      padding: 8px;
+      border-radius: 4px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .task-detail-desc table, .msg-detail-text table {
+      border-collapse: collapse;
+      margin: 8px 0;
+      width: 100%;
+      font-size: 0.95em;
+    }
+    .task-detail-desc th, .task-detail-desc td,
+    .msg-detail-text th, .msg-detail-text td {
+      border: 1px solid var(--vscode-panel-border);
+      padding: 4px 8px;
+      text-align: left;
+    }
+    .task-detail-desc th, .msg-detail-text th {
+      font-weight: 600;
+      background: var(--vscode-textCodeBlock-background);
+    }
+    .task-detail-desc hr, .msg-detail-text hr {
+      border: none;
+      border-top: 1px solid var(--vscode-panel-border);
+      margin: 8px 0;
+    }
+    .task-detail-desc blockquote, .msg-detail-text blockquote {
+      border-left: 3px solid var(--vscode-panel-border);
+      margin: 4px 0;
+      padding: 2px 12px;
+      opacity: 0.85;
     }
 
     /* ===== Agent Color Classes (theme-aware) ===== */
@@ -879,8 +965,6 @@ export class DashboardPanel {
     .agent-text-unknown { color: var(--vscode-descriptionForeground); }
 
     /* ===== Lifecycle Badges ===== */
-    .agent-chip.idle { opacity: 0.7; }
-    .agent-chip.shutting-down { opacity: 0.6; }
     .agent-status-badge.status-idle { color: var(--atm-status-yellow); }
     .agent-status-badge.status-shutting-down { color: var(--atm-status-orange); }
     .agent-status-badge.status-shutdown { color: var(--atm-status-red); }
@@ -1083,17 +1167,6 @@ export class DashboardPanel {
       return d.innerHTML;
     }
 
-    // ---- Format prompt text (lightweight markdown) ----
-    function formatPrompt(text) {
-      // First escape, then apply formatting
-      var escaped = esc(text);
-      // Bold: **text** → <strong>text</strong>
-      escaped = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      // Backtick code: \`text\` → <code>text</code>
-      escaped = escaped.replace(/\x60([^\x60]+)\x60/g, '<code style="background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:0.9em">$1</code>');
-      return escaped;
-    }
-
     // ---- Handle messages from extension ----
     window.addEventListener('message', (event) => {
       const msg = event.data;
@@ -1195,57 +1268,71 @@ export class DashboardPanel {
     }
 
     function patchTeamCard(card, team) {
-      // Update stats (including team status badge)
-      const stats = card.querySelector('.team-stats');
-      if (stats) {
-        stats.innerHTML = teamStatusBadgeHtml(team.teamStatus) +
-          '<span>' + team.memberCount + ' agent' + (team.memberCount !== 1 ? 's' : '') + '</span>' +
-          '<span>&middot;</span>' +
-          '<span>' + team.completedTasks + '/' + team.totalTasks + ' tasks done</span>';
-      }
+      // Each section wrapped in try-catch so a failure in one doesn't prevent others
+      try {
+        // Update stats (including team status badge)
+        var stats = card.querySelector('.team-stats');
+        if (stats) {
+          stats.innerHTML = teamStatusBadgeHtml(team.teamStatus) +
+            '<span>' + team.memberCount + ' agent' + (team.memberCount !== 1 ? 's' : '') + '</span>' +
+            '<span>&middot;</span>' +
+            '<span>' + team.completedTasks + '/' + team.totalTasks + ' tasks done</span>';
+        }
+      } catch(e) { console.warn('[ATM] patchTeamCard stats error:', e); }
 
-      // Update agent strip
-      const strip = card.querySelector('.agent-strip');
-      if (strip) {
-        strip.innerHTML = team.members.map(function(m) {
-          var lc = m.lifecycle || 'active';
-          var dotClass = lc === 'shutdown' ? 'dot agent-color-shutdown' : 'dot agent-color-' + m.colorName;
-          var chipClass = lc === 'shutdown' ? 'agent-chip shutdown' : lc === 'idle' ? 'agent-chip idle' : lc === 'shutting_down' ? 'agent-chip shutting-down' : 'agent-chip';
-          var leadStar = m.lead ? '<span class="lead-star" aria-label="Team Lead">&#9733;</span>' : '';
-          var statusBadge = lc === 'shutdown' ? '<span class="agent-status-badge status-shutdown">SHUTDOWN</span>' : lc === 'idle' ? '<span class="agent-status-badge status-idle">IDLE</span>' : lc === 'shutting_down' ? '<span class="agent-status-badge status-shutting-down">SHUTTING DOWN</span>' : '';
-          return '<div class="' + chipClass + '"><span class="' + dotClass + '"></span>' +
-            leadStar + esc(m.name) + statusBadge +
-            '<span class="model">' + esc(m.model) + '</span></div>';
-        }).join('');
-      }
+      try {
+        // Update agent strip
+        var strip = card.querySelector('.agent-strip');
+        if (strip) {
+          strip.innerHTML = team.members.map(function(m) {
+            var lc = m.lifecycle || 'active';
+            var dotClass = lc === 'shutdown' ? 'dot agent-color-shutdown' : 'dot agent-color-' + m.colorName;
+            var chipClass = lc === 'shutdown' ? 'agent-chip shutdown' : lc === 'idle' ? 'agent-chip idle' : lc === 'shutting_down' ? 'agent-chip shutting-down' : 'agent-chip';
+            var leadStar = m.lead ? '<span class="lead-star" aria-label="Team Lead">&#9733;</span>' : '';
+            var statusBadge = lc === 'shutdown' ? '<span class="agent-status-badge status-shutdown">SHUTDOWN</span>' : lc === 'idle' ? '<span class="agent-status-badge status-idle">IDLE</span>' : lc === 'shutting_down' ? '<span class="agent-status-badge status-shutting-down">SHUTTING DOWN</span>' : '';
+            return '<div class="' + chipClass + '"><span class="' + dotClass + '"></span>' +
+              leadStar + esc(m.name) + statusBadge +
+              '<span class="model">' + esc(m.model) + '</span></div>';
+          }).join('');
+        }
+      } catch(e) { console.warn('[ATM] patchTeamCard strip error:', e); }
 
-      // Update progress
-      var progressPct = team.totalTasks > 0 ? Math.round((team.completedTasks / team.totalTasks) * 100) : 0;
-      var sectionBars = card.querySelectorAll('.section-bar');
-      if (sectionBars[0]) {
-        var fill = sectionBars[0].querySelector('.progress-fill');
-        if (fill) fill.style.width = progressPct + '%';
-        var cnt = sectionBars[0].querySelector('.section-count');
-        if (cnt) cnt.textContent = team.completedTasks + '/' + team.totalTasks;
-      }
+      try {
+        // Update progress
+        var progressPct = team.totalTasks > 0 ? Math.round((team.completedTasks / team.totalTasks) * 100) : 0;
+        var sectionBars = card.querySelectorAll('.section-bar');
+        if (sectionBars[0]) {
+          var fill = sectionBars[0].querySelector('.progress-fill');
+          if (fill) fill.style.width = progressPct + '%';
+          var cnt = sectionBars[0].querySelector('.section-count');
+          if (cnt) cnt.textContent = team.completedTasks + '/' + team.totalTasks;
+        }
+      } catch(e) { console.warn('[ATM] patchTeamCard progress error:', e); }
 
-      // Update tasks — preserve expanded state
-      var taskList = card.querySelector('.task-list');
-      if (taskList) {
-        patchList(taskList, team.tasks, 'task');
-      }
+      try {
+        // Update tasks — preserve expanded state
+        var taskList = card.querySelector('.task-list');
+        if (taskList) {
+          patchList(taskList, team.tasks, 'task');
+        }
+      } catch(e) { console.warn('[ATM] patchTeamCard tasks error:', e); }
 
-      // Update message count
-      if (sectionBars[1]) {
-        var mcnt = sectionBars[1].querySelector('.section-count');
-        if (mcnt) mcnt.textContent = String(team.messages.length);
-      }
+      try {
+        // Update message count
+        var sectionBars2 = card.querySelectorAll('.section-bar');
+        if (sectionBars2[1]) {
+          var mcnt = sectionBars2[1].querySelector('.section-count');
+          if (mcnt) mcnt.textContent = String(team.messages.length);
+        }
+      } catch(e) { console.warn('[ATM] patchTeamCard msg count error:', e); }
 
-      // Update messages — preserve expanded state
-      var msgFeed = card.querySelector('.message-feed');
-      if (msgFeed) {
-        patchList(msgFeed, team.messages, 'msg');
-      }
+      try {
+        // Update messages — preserve expanded state
+        var msgFeed = card.querySelector('.message-feed');
+        if (msgFeed) {
+          patchList(msgFeed, team.messages, 'msg');
+        }
+      } catch(e) { console.warn('[ATM] patchTeamCard messages error:', e); }
     }
 
     function patchList(container, items, type) {
@@ -1292,16 +1379,25 @@ export class DashboardPanel {
     }
 
     function renderTaskRow(t) {
-      return '<div class="task-row" tabindex="0" role="button" aria-expanded="false" data-task-id="' + esc(t.id) + '" data-team="' + esc(t.teamName || '') + '">' +
-        '<span class="status-dot ' + t.statusClass + '" aria-label="' + t.badgeLabel + '"></span>' +
+      var id = String(t.id || '');
+      var subject = String(t.subject || '');
+      var statusClass = String(t.statusClass || 'pending');
+      var badgeLabel = String(t.badgeLabel || 'pending');
+      var colorName = String(t.agentColorName || 'unknown');
+      var teamName = String(t.teamName || '');
+      var blockedBy = Array.isArray(t.blockedBy) ? t.blockedBy : [];
+      var blocks = Array.isArray(t.blocks) ? t.blocks : [];
+
+      return '<div class="task-row" tabindex="0" role="button" aria-expanded="false" data-task-id="' + esc(id) + '" data-team="' + esc(teamName) + '">' +
+        '<span class="status-dot ' + statusClass + '" aria-label="' + badgeLabel + '"></span>' +
         '<div class="task-content"><div class="task-header">' +
-        '<span class="task-id">#' + esc(t.id) + '</span>' +
-        '<span class="task-agent agent-text-' + t.agentColorName + '">' + esc(t.subject) + '</span>' +
-        '<span class="status-badge ' + t.statusClass + '">' + t.badgeLabel + '</span>' +
-        '</div><div class="task-desc-preview">' + esc(t.description) + '</div></div></div>' +
-        '<div class="task-detail"><div class="task-detail-desc">' + formatPrompt(t.fullPrompt || t.description) + '</div>' +
-        (t.blockedBy.length > 0 ? '<div class="task-deps">Blocked by: #' + t.blockedBy.map(esc).join(', #') + '</div>' : '') +
-        (t.blocks.length > 0 ? '<div class="task-deps">Blocks: #' + t.blocks.map(esc).join(', #') + '</div>' : '') +
+        '<span class="task-id">#' + esc(id) + '</span>' +
+        '<span class="task-agent agent-text-' + colorName + '">' + esc(subject) + '</span>' +
+        '<span class="status-badge ' + statusClass + '">' + badgeLabel + '</span>' +
+        '</div><div class="task-desc-preview">' + esc(t.description || '') + '</div></div></div>' +
+        '<div class="task-detail"><div class="task-detail-desc">' + (t.fullPromptHtml || esc(t.description || '')) + '</div>' +
+        (blockedBy.length > 0 ? '<div class="task-deps">Blocked by: #' + blockedBy.map(function(b) { return esc(String(b)); }).join(', #') + '</div>' : '') +
+        (blocks.length > 0 ? '<div class="task-deps">Blocks: #' + blocks.map(function(b) { return esc(String(b)); }).join(', #') + '</div>' : '') +
         '</div>';
     }
 
@@ -1317,7 +1413,7 @@ export class DashboardPanel {
         '<span class="msg-time">' + m.time + '</span>' +
         '</div><div class="msg-preview">' + esc(m.preview) + '</div></div></div>' +
         '<div class="msg-detail"><div class="msg-detail-text">' +
-        (m.isTyped ? '<pre>' + esc(m.fullText) + '</pre>' : esc(m.fullText)) +
+        (m.isTyped ? '<pre>' + esc(m.fullText) + '</pre>' : (m.fullTextHtml || esc(m.fullText))) +
         '</div></div>';
     }
 
@@ -1327,7 +1423,7 @@ export class DashboardPanel {
       return '<span class="team-status-badge ts-active">active</span>';
     }
 
-    var ICON_REPLAY = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2v5h5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8a5 5 0 1 0 1.5-3.5L2 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M8 5v3.5l2 1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    var ICON_REPLAY = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>';
     var ICON_TRASH = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 1.5h5M2.5 4h11M6 7v4M10 7v4M3.5 4l.75 8.5a1 1 0 0 0 1 .9h5.5a1 1 0 0 0 1-.9L12.5 4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
     function teamActionsHtml(teamName) {
@@ -1447,7 +1543,9 @@ export class DashboardPanel {
     let tasksHtml = '';
     for (const task of tasks) {
       const effectiveStatus = this.state.getEffectiveTaskStatus(team.name, task);
-      const blocked = task.blockedBy.length > 0 && task.status === 'pending';
+      const blockedBy = task.blockedBy ?? [];
+      const blocks = task.blocks ?? [];
+      const blocked = blockedBy.length > 0 && task.status === 'pending';
       const statusClass = blocked ? 'blocked' : effectiveStatus;
       const badgeLabel = blocked ? 'blocked' : (effectiveStatus === 'in_progress' ? 'active' : (effectiveStatus === 'completed' ? 'done' : 'pending'));
       const agentColorName = agentColorMap.get(task.subject) || 'unknown';
@@ -1462,13 +1560,13 @@ export class DashboardPanel {
               <span class="task-agent agent-text-${agentColorName}">${escapeHtml(task.subject)}</span>
               <span class="status-badge ${statusClass}">${badgeLabel}</span>
             </div>
-            <div class="task-desc-preview">${escapeHtml(task.description)}</div>
+            <div class="task-desc-preview">${escapeHtml(task.description || '')}</div>
           </div>
         </div>
         <div class="task-detail">
-          <div class="task-detail-desc">${formatPromptHtml(team.members.find(m => m.name === task.subject)?.prompt || task.description)}</div>
-          ${task.blockedBy.length > 0 ? `<div class="task-deps">Blocked by: #${task.blockedBy.map(escapeHtml).join(', #')}</div>` : ''}
-          ${task.blocks.length > 0 ? `<div class="task-deps">Blocks: #${task.blocks.map(escapeHtml).join(', #')}</div>` : ''}
+          <div class="task-detail-desc">${formatPromptHtml(team.members.find(m => m.name === task.subject)?.prompt || task.description || '')}</div>
+          ${blockedBy.length > 0 ? `<div class="task-deps">Blocked by: #${blockedBy.map(escapeHtml).join(', #')}</div>` : ''}
+          ${blocks.length > 0 ? `<div class="task-deps">Blocks: #${blocks.map(escapeHtml).join(', #')}</div>` : ''}
         </div>`;
     }
     if (tasks.length === 0) {
@@ -1519,7 +1617,7 @@ export class DashboardPanel {
           </div>
         </div>
         <div class="msg-detail">
-          <div class="msg-detail-text">${typed ? `<pre>${escapeHtml(fullText)}</pre>` : escapeHtml(fullText)}</div>
+          <div class="msg-detail-text">${typed ? `<pre>${escapeHtml(fullText)}</pre>` : formatPromptHtml(fullText)}</div>
         </div>`;
     }
     if (sorted.length === 0) {
@@ -1612,10 +1710,7 @@ function getTypedPreview(typed: { type: string; description?: string; reason?: s
 
 /** Escape HTML then apply lightweight markdown: **bold** and `code` */
 function formatPromptHtml(text: string): string {
-  let s = escapeHtml(text);
-  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  s = s.replace(/`([^`]+)`/g, '<code style="background:var(--vscode-textCodeBlock-background);padding:1px 4px;border-radius:3px;font-family:var(--vscode-editor-font-family);font-size:0.9em">$1</code>');
-  return s;
+  return md.render(text);
 }
 
 function getNonce(): string {
@@ -1632,6 +1727,6 @@ const SVG_ICONS = {
   refresh: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.5 2.5v3.5h-3.5M2.5 13.5v-3.5h3.5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M2.5 8a5.5 5.5 0 0 1 9.4-3.9M13.5 8a5.5 5.5 0 0 1-9.4 3.9" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>`,
   collapseAll: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 3h10v1H3V3zm0 9h10v1H3v-1zm2-5l3-3 3 3H5zm6 2l-3 3-3-3h6z"/></svg>`,
   agents: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><circle cx="5" cy="16" r="2.5"/><circle cx="19" cy="16" r="2.5"/><line x1="12" y1="11" x2="7" y2="14"/><line x1="12" y1="11" x2="17" y2="14"/></svg>`,
-  replay: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2v5h5" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 8a5 5 0 1 0 1.5-3.5L2 7" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/><path d="M8 5v3.5l2 1" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  replay: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>`,
   trash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 1.5h5M2.5 4h11M6 7v4M10 7v4M3.5 4l.75 8.5a1 1 0 0 0 1 .9h5.5a1 1 0 0 0 1-.9L12.5 4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
 };
