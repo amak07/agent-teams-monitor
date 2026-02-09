@@ -136,6 +136,16 @@
         "title": "Clean Up Team Files",
         "category": "Agent Teams",
         "icon": "$(trash)"
+      },
+      {
+        "command": "agentTeams.replayTeam",
+        "title": "Replay Team Session",
+        "category": "Agent Teams"
+      },
+      {
+        "command": "agentTeams.stopTeamReplay",
+        "title": "Stop Team Replay",
+        "category": "Agent Teams"
       }
     ],
     "menus": {
@@ -188,6 +198,21 @@
           "group": "inline"
         }
       ]
+    },
+    "configuration": {
+      "title": "Agent Teams Monitor",
+      "properties": {
+        "agentTeams.autoRecord": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically record agent team sessions for later replay."
+        },
+        "agentTeams.recordingsPath": {
+          "type": "string",
+          "default": "",
+          "description": "Custom path for auto-recorded sessions. Leave empty to use VS Code globalStorage (recommended)."
+        }
+      }
     }
   },
   "scripts": {

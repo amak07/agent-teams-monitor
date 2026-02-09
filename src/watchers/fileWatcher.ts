@@ -19,6 +19,13 @@ export class FileWatcher {
   private teamsWatcher: fs.FSWatcher | undefined;
   private tasksWatcher: fs.FSWatcher | undefined;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
+  private knownTeams = new Set<string>();
+
+  private _onTeamAppeared = new vscode.EventEmitter<string>();
+  readonly onTeamAppeared = this._onTeamAppeared.event;
+
+  private _onTeamDisappeared = new vscode.EventEmitter<string>();
+  readonly onTeamDisappeared = this._onTeamDisappeared.event;
 
   constructor(private state: TeamStateManager) {}
 
@@ -49,6 +56,11 @@ export class FileWatcher {
       for (const name of this.state.getTeamNames()) {
         this.state.removeTeam(name);
       }
+      // Fire teamDisappeared for all known teams
+      for (const name of this.knownTeams) {
+        this._onTeamDisappeared.fire(name);
+      }
+      this.knownTeams.clear();
     }
     if (!tasksExists && this.tasksWatcher) {
       this.tasksWatcher.close();
@@ -181,6 +193,12 @@ export class FileWatcher {
           this.readTeamConfig(configPath);
         }
 
+        // Fire teamAppeared for newly detected teams
+        if (!this.knownTeams.has(dir.name)) {
+          this.knownTeams.add(dir.name);
+          this._onTeamAppeared.fire(dir.name);
+        }
+
         const inboxDir = path.join(TEAMS_DIR, dir.name, 'inboxes');
         if (fs.existsSync(inboxDir)) {
           const inboxFiles = fs.readdirSync(inboxDir)
@@ -195,6 +213,14 @@ export class FileWatcher {
       for (const teamName of this.state.getTeamNames()) {
         if (!dirsOnDisk.has(teamName)) {
           this.state.removeTeam(teamName);
+        }
+      }
+
+      // Fire teamDisappeared for teams that were on disk but are no longer
+      for (const teamName of this.knownTeams) {
+        if (!dirsOnDisk.has(teamName)) {
+          this.knownTeams.delete(teamName);
+          this._onTeamDisappeared.fire(teamName);
         }
       }
     } catch {
@@ -241,5 +267,7 @@ export class FileWatcher {
       clearTimeout(timer);
     }
     this.debounceTimers.clear();
+    this._onTeamAppeared.dispose();
+    this._onTeamDisappeared.dispose();
   }
 }

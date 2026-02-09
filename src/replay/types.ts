@@ -16,3 +16,14 @@ export interface Manifest {
   frameCount: number;
   teamNames: string[];
 }
+
+export type ReplayStatus = 'playing' | 'completed' | 'stopped';
+
+export interface TeamReplayState {
+  recordingDir: string;
+  status: ReplayStatus;
+  speed: number;
+  currentFrame: number;
+  totalFrames: number;
+  progressPct: number;
+}

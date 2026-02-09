@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { TeamStateManager } from './state/teamState';
 import { FileWatcher } from './watchers/fileWatcher';
 import { AgentTreeProvider } from './views/agentTreeProvider';
@@ -7,6 +8,7 @@ import { MessageTreeProvider } from './views/messageTreeProvider';
 import { StatusBarManager } from './statusBar/statusBarItem';
 import { SessionArchiver } from './history/sessionArchiver';
 import { ReplayManager } from './replay/replayManager';
+import { AutoRecorder } from './replay/autoRecorder';
 import { DashboardPanel } from './views/dashboardPanel';
 import { AgentTask, InboxEntry } from './types';
 
@@ -17,7 +19,7 @@ export function activate(context: vscode.ExtensionContext) {
   const state = new TeamStateManager();
   const watcher = new FileWatcher(state);
   const archiver = new SessionArchiver(state);
-  const replayManager = new ReplayManager(state);
+  const replayManager = new ReplayManager(state, context);
 
   // Set workspace paths for filtering
   const folders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) ?? [];
@@ -59,7 +61,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (e.type === 'teamAdded' || e.type === 'teamUpdated' || e.type === 'teamRemoved') {
       updateBadge();
     }
-    if (!notificationsReady || state.replayMode) { return; }
+    if (!notificationsReady || state.isAnyReplayActive()) { return; }
     if (e.type === 'teamAdded') {
       vscode.window.showInformationMessage(
         `Agent Team '${e.teamName}' started`,
@@ -135,7 +137,62 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand('agentTeams.stopReplay', () => {
       replayManager.stopReplay();
     }),
+    vscode.commands.registerCommand('agentTeams.replayTeam', (teamName: string, recordingDir: string) => {
+      replayManager.replayTeam(teamName, recordingDir);
+    }),
+    vscode.commands.registerCommand('agentTeams.stopTeamReplay', (teamName: string) => {
+      replayManager.stopTeamReplay(teamName);
+    }),
   );
+
+  // Auto-recording setup
+  const agentTeamsConfig = vscode.workspace.getConfiguration('agentTeams');
+  const autoRecordEnabled = agentTeamsConfig.get<boolean>('autoRecord', true);
+  const customRecordingsPath = agentTeamsConfig.get<string>('recordingsPath', '');
+  const autoRecordDir = customRecordingsPath || path.join(context.globalStorageUri.fsPath, 'recordings');
+
+  let autoRecorder: AutoRecorder | undefined;
+  if (autoRecordEnabled) {
+    autoRecorder = new AutoRecorder(state, autoRecordDir);
+  }
+
+  // Hook auto-recorder into file watcher events
+  watcher.onTeamAppeared(teamName => {
+    if (autoRecorder && !state.isTeamReplaying(teamName)) {
+      autoRecorder.startRecording(teamName);
+    }
+  });
+
+  // Capture frames on state changes (event-driven, no polling)
+  state.onDidChange(e => {
+    if (!autoRecorder) { return; }
+    if (e.type === 'teamUpdated' || e.type === 'taskUpdated' || e.type === 'messageReceived') {
+      const teamName = e.teamName;
+      if (teamName && !state.isTeamReplaying(teamName) && autoRecorder.isRecording(teamName)) {
+        autoRecorder.captureFrame(teamName);
+      }
+    }
+  });
+
+  watcher.onTeamDisappeared(teamName => {
+    if (autoRecorder) {
+      const manifest = autoRecorder.stopRecording(teamName);
+      if (manifest && manifest.frameCount > 0) {
+        replayManager.invalidateRecordingsCache();
+        const recordingDir = autoRecorder.getRecordingDir(teamName);
+        vscode.window.showInformationMessage(
+          `Agent Team '${teamName}' completed. Replay available.`,
+          'Replay', 'Open Dashboard'
+        ).then(choice => {
+          if (choice === 'Replay' && recordingDir) {
+            replayManager.startReplay(recordingDir);
+          } else if (choice === 'Open Dashboard') {
+            vscode.commands.executeCommand('agentTeams.openDashboard');
+          }
+        });
+      }
+    }
+  });
 
   // Start watching
   watcher.start();
@@ -153,6 +210,7 @@ export function activate(context: vscode.ExtensionContext) {
     { dispose: () => statusBar.dispose() },
     { dispose: () => archiver.dispose() },
     { dispose: () => replayManager.dispose() },
+    { dispose: () => autoRecorder?.dispose() },
   );
 }
 

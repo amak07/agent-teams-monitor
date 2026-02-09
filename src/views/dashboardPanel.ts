@@ -64,8 +64,15 @@ export class DashboardPanel {
           this.panel.webview.postMessage({ command: 'scrollTo', type: p.type, id: p.id, team: p.team });
         }
       }
-      if (msg.command === 'replayTeam') {
-        vscode.commands.executeCommand('agentTeams.replaySession');
+      if (msg.command === 'replayTeam' && msg.teamName) {
+        if (msg.recordingDir) {
+          vscode.commands.executeCommand('agentTeams.replayTeam', msg.teamName, msg.recordingDir);
+        } else {
+          vscode.commands.executeCommand('agentTeams.replaySession');
+        }
+      }
+      if (msg.command === 'stopTeamReplay' && msg.teamName) {
+        vscode.commands.executeCommand('agentTeams.stopTeamReplay', msg.teamName);
       }
       if (msg.command === 'cleanTeam' && msg.teamName) {
         vscode.commands.executeCommand('agentTeams.cleanTeam', { config: { name: msg.teamName } });
@@ -136,8 +143,9 @@ export class DashboardPanel {
     const allMessages = this.state.getFilteredMessages();
 
     return {
-      replayMode: this.state.replayMode,
+      anyReplayActive: this.state.isAnyReplayActive(),
       teams: teams.map(team => {
+        const replayState = this.state.getTeamReplayState(team.name);
         const tasks = allTasks.get(team.name) ?? [];
         const teamMsgs = allMessages.get(team.name);
         const messages = this.collectMessages(teamMsgs);
@@ -159,6 +167,14 @@ export class DashboardPanel {
           name: team.name,
           memberCount: team.members.length,
           completedTasks: completed,
+          replayState: replayState ? {
+            status: replayState.status,
+            progressPct: replayState.progressPct,
+            speed: replayState.speed,
+            currentFrame: replayState.currentFrame,
+            totalFrames: replayState.totalFrames,
+            recordingDir: replayState.recordingDir,
+          } : null,
           totalTasks: tasks.length,
           teamStatus,
           members: team.members.map(m => {
@@ -194,7 +210,7 @@ export class DashboardPanel {
               .map(({ entry, inboxOwner }) => {
                 const fromColor = getFromColorName(entry);
                 const typed = parseTypedMessage(entry.text);
-                let badgeClass = '', badgeText = '', preview = '', fullText = '';
+                let badgeClass = '', badgeText = '', preview = '', fullText = '', fullTextHighlighted = '';
                 const fp = `${entry.from}\0${entry.timestamp.slice(0, 19)}\0${entry.text}`;
                 const isBroadcast = !typed && broadcasts.has(fp);
 
@@ -204,6 +220,7 @@ export class DashboardPanel {
                   badgeText = badge.badgeText;
                   preview = entry.summary || getTypedPreview(typed);
                   fullText = JSON.stringify(typed, null, 2);
+                  fullTextHighlighted = highlightJsonHtml(fullText);
                 } else {
                   if (isBroadcast) {
                     badgeClass = 'badge-broadcast';
@@ -219,11 +236,37 @@ export class DashboardPanel {
                   from: entry.from, to: inboxOwner,
                   time: formatTime(entry.timestamp),
                   fromColor, badgeClass, badgeText,
-                  preview, fullText, isTyped: !!typed,
+                  preview, fullText, fullTextHighlighted, isTyped: !!typed,
                   fullTextHtml: typed ? '' : formatPromptHtml(entry.text),
                   teamName: team.name,
                 };
               });
+          })(),
+          availableBadgeTypes: (() => {
+            const badgeSet = new Set<string>();
+            const broadcasts = detectBroadcasts(messages);
+            for (const { entry } of messages) {
+              const typed = parseTypedMessage(entry.text);
+              if (typed) {
+                badgeSet.add(getTypedBadge(typed).badgeClass);
+              } else {
+                const fp = `${entry.from}\0${entry.timestamp.slice(0, 19)}\0${entry.text}`;
+                if (broadcasts.has(fp)) { badgeSet.add('badge-broadcast'); }
+                else { badgeSet.add(''); }
+              }
+            }
+            return Array.from(badgeSet).map(cls => ({
+              cls,
+              text: cls === '' ? 'Plain' : cls.replace('badge-', ''),
+            }));
+          })(),
+          availableAgents: (() => {
+            const agents = new Set<string>();
+            for (const { entry, inboxOwner } of messages) {
+              agents.add(entry.from);
+              agents.add(inboxOwner);
+            }
+            return Array.from(agents).sort();
           })(),
         };
       }),
@@ -289,6 +332,7 @@ export class DashboardPanel {
       --atm-status-red: #f44747;
       --atm-status-orange: #e5a033;
       --atm-status-purple: #c678dd;
+      --atm-status-teal: #56c8d8;
       --atm-overlay-subtle: rgba(255,255,255,0.08);
 
       /* Agent colors (dark theme defaults) */
@@ -308,6 +352,7 @@ export class DashboardPanel {
       --atm-status-red: #c72020;
       --atm-status-orange: #b07a15;
       --atm-status-purple: #8b4dab;
+      --atm-status-teal: #0097a7;
       --atm-overlay-subtle: rgba(0,0,0,0.06);
 
       --atm-agent-blue: #1a6fd1;
@@ -326,6 +371,7 @@ export class DashboardPanel {
       --atm-status-red: #ff6b6b;
       --atm-status-orange: #ffaa33;
       --atm-status-purple: #d9a0f0;
+      --atm-status-teal: #80deea;
       --atm-overlay-subtle: rgba(255,255,255,0.12);
 
       --atm-agent-blue: #6cb6ff;
@@ -447,7 +493,7 @@ export class DashboardPanel {
     }
     .chevron {
       transition: transform 200ms;
-      opacity: 0.5;
+      opacity: 0.65;
       flex-shrink: 0;
     }
     .chevron.collapsed {
@@ -486,6 +532,36 @@ export class DashboardPanel {
     .team-status-badge.ts-active {
       background: color-mix(in srgb, var(--atm-status-blue) 15%, transparent);
       color: var(--atm-status-blue);
+    }
+    .team-status-badge.ts-replaying {
+      background: color-mix(in srgb, var(--atm-status-purple) 15%, transparent);
+      color: var(--atm-status-purple);
+    }
+    .team-status-badge.ts-replay-done {
+      background: color-mix(in srgb, var(--atm-status-teal) 15%, transparent);
+      color: var(--atm-status-teal);
+    }
+    .team-status-badge.ts-replay-stopped {
+      background: color-mix(in srgb, var(--atm-status-orange) 15%, transparent);
+      color: var(--atm-status-orange);
+    }
+    .replay-progress {
+      height: 3px;
+      background: var(--vscode-editorWidget-border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .replay-progress-bar {
+      height: 100%;
+      background: var(--atm-status-purple);
+      transition: width 0.3s ease;
+    }
+    .team-card[data-replay-status="playing"] {
+      border-left: 3px solid var(--atm-status-purple);
+    }
+    .team-card[data-replay-status="completed"],
+    .team-card[data-replay-status="stopped"] {
+      border-left: 3px solid var(--atm-status-teal);
     }
     .team-actions {
       display: flex;
@@ -678,16 +754,17 @@ export class DashboardPanel {
       min-width: 0;
     }
     .task-chevron {
-      font-size: 0.7em;
-      opacity: 0.4;
-      transition: transform 200ms;
+      font-size: 0.85em;
+      opacity: 0.6;
+      transition: transform 200ms, opacity 150ms;
       flex-shrink: 0;
       display: inline-block;
       margin-top: 4px;
     }
+    .task-row:hover .task-chevron { opacity: 0.85; }
     .task-row[aria-expanded="true"] .task-chevron {
       transform: rotate(90deg);
-      opacity: 0.7;
+      opacity: 0.8;
     }
     .task-row[aria-expanded="true"] {
       background: var(--atm-overlay-subtle);
@@ -749,6 +826,7 @@ export class DashboardPanel {
       border-bottom: 1px solid var(--vscode-panel-border);
     }
     .task-detail-desc {
+      position: relative;
       font-size: 0.9em;
       line-height: 1.6;
       word-wrap: break-word;
@@ -765,9 +843,61 @@ export class DashboardPanel {
       opacity: 0.5;
     }
 
+    /* ===== Message filter controls ===== */
+    .msg-filter-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      padding: 6px 16px 4px;
+      align-items: center;
+    }
+    .filter-tag {
+      font-size: 0.7em;
+      padding: 2px 8px;
+      border-radius: 10px;
+      border: 1px solid var(--vscode-panel-border);
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      cursor: pointer;
+      font-family: var(--vscode-font-family);
+      font-weight: 500;
+      transition: background 150ms, opacity 150ms;
+      opacity: 0.55;
+    }
+    .filter-tag:hover { opacity: 0.85; }
+    .filter-tag.active { opacity: 1; border-color: transparent; background: var(--atm-overlay-subtle); }
+    .filter-tag-label { font-size: 0.65em; opacity: 0.5; text-transform: uppercase; margin-right: 4px; }
+    .msg-filters { display: flex; flex-direction: column; gap: 2px; }
+    .msg-filters.collapsed { display: none; }
+
+    /* ===== Collapsible section bar ===== */
+    .section-bar.clickable {
+      cursor: pointer;
+      user-select: none;
+      transition: background 150ms;
+    }
+    .section-bar.clickable:hover {
+      background: var(--vscode-list-hoverBackground);
+    }
+    .section-bar .section-chevron {
+      transition: transform 200ms, opacity 150ms;
+      opacity: 0.65;
+      font-size: 0.85em;
+    }
+    .section-bar.clickable:hover .section-chevron { opacity: 0.9; }
+    .section-bar .section-chevron.collapsed {
+      transform: rotate(-90deg);
+    }
+
     /* ===== Message Feed ===== */
     .message-feed {
       padding: 0 16px 12px;
+      overflow: hidden;
+      transition: max-height 200ms ease;
+    }
+    .message-feed.collapsed {
+      max-height: 0 !important;
+      padding: 0 16px;
     }
     .msg-row {
       display: flex;
@@ -802,15 +932,16 @@ export class DashboardPanel {
       flex-wrap: wrap;
     }
     .msg-chevron {
-      font-size: 0.7em;
-      opacity: 0.4;
-      transition: transform 200ms;
+      font-size: 0.85em;
+      opacity: 0.6;
+      transition: transform 200ms, opacity 150ms;
       flex-shrink: 0;
       display: inline-block;
     }
+    .msg-row:hover .msg-chevron { opacity: 0.85; }
     .msg-row[aria-expanded="true"] .msg-chevron {
       transform: rotate(90deg);
-      opacity: 0.7;
+      opacity: 0.8;
     }
     .msg-row[aria-expanded="true"] {
       background: var(--atm-overlay-subtle);
@@ -842,7 +973,7 @@ export class DashboardPanel {
     .badge-shutdown { background: color-mix(in srgb, var(--atm-status-red) 15%, transparent); color: var(--atm-status-red); }
     .badge-plan { background: color-mix(in srgb, var(--atm-status-purple) 15%, transparent); color: var(--atm-status-purple); }
     .badge-system { background: var(--atm-overlay-subtle); color: var(--vscode-descriptionForeground); }
-    .badge-broadcast { background: color-mix(in srgb, var(--atm-status-purple) 15%, transparent); color: var(--atm-status-purple); }
+    .badge-broadcast { background: color-mix(in srgb, var(--atm-status-teal) 15%, transparent); color: var(--atm-status-teal); }
 
     .msg-time {
       margin-left: auto;
@@ -877,11 +1008,11 @@ export class DashboardPanel {
       border-bottom: 1px solid var(--vscode-panel-border);
     }
     .msg-detail-text {
+      position: relative;
       font-size: 0.85em;
       line-height: 1.6;
       word-wrap: break-word;
       overflow-wrap: break-word;
-      max-width: 70ch;
       opacity: 0.8;
       border-top: 1px solid var(--vscode-panel-border);
       padding-top: 6px;
@@ -893,9 +1024,77 @@ export class DashboardPanel {
       padding: 8px;
       border-radius: 4px;
       overflow-x: auto;
-      white-space: pre-wrap;
-      word-wrap: break-word;
+      white-space: pre;
     }
+
+    /* ===== Status legend ===== */
+    .toolbar-text-btn {
+      border: 1px solid var(--vscode-panel-border);
+      background: transparent;
+      color: var(--vscode-descriptionForeground);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.8em;
+      font-family: var(--vscode-font-family);
+      padding: 3px 8px;
+      opacity: 0.7;
+      transition: opacity 150ms, background 150ms;
+    }
+    .toolbar-text-btn:hover { opacity: 1; background: var(--vscode-toolbar-hoverBackground); }
+    .status-legend {
+      display: none;
+      padding: 10px 16px;
+      font-size: 0.8em;
+      line-height: 1.8;
+      border-bottom: 1px solid var(--vscode-panel-border);
+      background: var(--atm-overlay-subtle);
+    }
+    .status-legend.visible { display: block; }
+    .legend-section { margin-bottom: 8px; }
+    .legend-section:last-child { margin-bottom: 0; }
+    .legend-title { font-weight: 600; opacity: 0.7; margin-bottom: 2px; }
+    .legend-item { display: flex; align-items: center; gap: 8px; }
+    .legend-dot {
+      width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
+    .legend-badge-sample {
+      display: inline-block; font-size: 0.8em; padding: 0 4px;
+      border-radius: 3px; font-weight: 600; text-transform: uppercase;
+    }
+
+    /* ===== Copy button in detail panels ===== */
+    .detail-copy-btn {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 6px;
+      border: 1px solid var(--vscode-panel-border);
+      background: var(--vscode-editor-background);
+      color: var(--vscode-foreground);
+      border-radius: 3px;
+      cursor: pointer;
+      font-size: 0.7em;
+      font-family: var(--vscode-font-family);
+      opacity: 0;
+      transition: opacity 150ms;
+      z-index: 1;
+    }
+    .detail-copy-btn svg { width: 12px; height: 12px; }
+    .task-detail-desc:hover .detail-copy-btn,
+    .msg-detail-text:hover .detail-copy-btn { opacity: 0.6; }
+    .detail-copy-btn:hover { opacity: 1 !important; background: var(--vscode-toolbar-hoverBackground); }
+    .detail-copy-btn.copied { opacity: 1; color: var(--atm-status-green); }
+
+    /* ===== JSON syntax highlighting ===== */
+    .json-key { color: var(--atm-agent-blue); }
+    .json-string { color: var(--atm-status-green); }
+    .json-number { color: var(--atm-status-orange); }
+    .json-boolean { color: var(--atm-status-purple); }
+    .json-null { color: var(--atm-status-red); opacity: 0.7; }
 
     /* ===== Markdown content styles (from markdown-it) ===== */
     .task-detail-desc p, .msg-detail-text p,
@@ -945,8 +1144,7 @@ export class DashboardPanel {
       padding: 8px;
       border-radius: 4px;
       overflow-x: auto;
-      white-space: pre-wrap;
-      word-wrap: break-word;
+      white-space: pre;
     }
     .task-detail-desc table, .msg-detail-text table {
       border-collapse: collapse;
@@ -1030,11 +1228,13 @@ export class DashboardPanel {
       <button class="icon-btn" id="collapseAllBtn" title="Collapse All" aria-label="Collapse all teams">
         ${SVG_ICONS.collapseAll}
       </button>
-      <button class="icon-btn" id="refreshBtn" title="Re-scan team files from disk" aria-label="Re-scan team files"${this.state.replayMode ? ' disabled' : ''}>
+      <button class="icon-btn" id="refreshBtn" title="Re-scan team files from disk" aria-label="Re-scan team files"${this.state.isAnyReplayActive() ? ' disabled' : ''}>
         ${SVG_ICONS.refresh}
       </button>
+      <button class="toolbar-text-btn" id="legendBtn" title="Status legend">Legend</button>
     </div>
   </div>
+  <div class="status-legend" id="globalLegend">${getLegendHtml()}</div>
 
   <div class="content" id="teamsContainer">
     ${teamsHtml}
@@ -1048,6 +1248,9 @@ export class DashboardPanel {
     const savedState = vscode.getState() || {};
     const collapsedTeams = savedState.collapsedTeams || {};
     const expandedItems = savedState.expandedItems || {};
+    const collapsedMessages = savedState.collapsedMessages || {};
+    const msgBadgeFilter = savedState.msgBadgeFilter || {};
+    const msgAgentFilter = savedState.msgAgentFilter || {};
 
     // Restore team filter
     const filterEl = document.getElementById('teamFilter');
@@ -1083,12 +1286,30 @@ export class DashboardPanel {
       }
     });
 
+    // Restore collapsed message sections
+    Object.entries(collapsedMessages).forEach(function([team, collapsed]) {
+      if (collapsed) {
+        var card = document.querySelector('[data-team="' + team + '"]');
+        if (card) {
+          var feed = card.querySelector('.message-feed');
+          var filters = card.querySelector('.msg-filters');
+          var chevron = card.querySelector('.msg-section-bar .section-chevron');
+          if (feed) feed.classList.add('collapsed');
+          if (filters) filters.classList.add('collapsed');
+          if (chevron) chevron.classList.add('collapsed');
+        }
+      }
+    });
+
     // ---- Save state helper ----
     function saveState() {
       vscode.setState({
         teamFilter: filterEl ? filterEl.value : '__all__',
         collapsedTeams,
         expandedItems,
+        collapsedMessages,
+        msgBadgeFilter,
+        msgAgentFilter,
       });
     }
 
@@ -1105,6 +1326,98 @@ export class DashboardPanel {
         card.style.display = (val === '__all__' || card.dataset.team === val) ? '' : 'none';
       });
     }
+
+    // ---- Message filters ----
+    function applyMsgFilters(teamName) {
+      var card = document.querySelector('[data-team="' + teamName + '"]');
+      if (!card) return;
+      var badgeVal = msgBadgeFilter[teamName] || '__all__';
+      var agentVal = msgAgentFilter[teamName] || '__all__';
+
+      card.querySelectorAll('.msg-row').forEach(function(row) {
+        var badge = row.dataset.badge || '';
+        var from = row.dataset.from || '';
+        var to = row.dataset.to || '';
+
+        var badgeMatch = (badgeVal === '__all__') || (badge === badgeVal);
+        var agentMatch = (agentVal === '__all__') || (from === agentVal) || (to === agentVal);
+
+        var show = badgeMatch && agentMatch;
+        row.style.display = show ? '' : 'none';
+        var next = row.nextElementSibling;
+        if (next && next.classList.contains('msg-detail')) {
+          next.style.display = show ? '' : 'none';
+        }
+      });
+    }
+
+    document.addEventListener('click', function(e) {
+      var badgeTag = e.target.closest('.badge-filter-tag');
+      if (badgeTag) {
+        var container = badgeTag.closest('.msg-filter-tags');
+        if (!container) return;
+        var filtersWrap = badgeTag.closest('.msg-filters');
+        var teamName = filtersWrap ? filtersWrap.dataset.filterTeam : null;
+        // Single-select toggle: clicking active tag resets to All
+        var val = badgeTag.dataset.badge;
+        if (badgeTag.classList.contains('active') && val !== '__all__') {
+          val = '__all__';
+        }
+        container.querySelectorAll('.badge-filter-tag').forEach(function(t) { t.classList.remove('active'); });
+        var target = container.querySelector('.badge-filter-tag[data-badge="' + (val || '') + '"]');
+        if (target) target.classList.add('active');
+        if (teamName) {
+          msgBadgeFilter[teamName] = val;
+          applyMsgFilters(teamName);
+          saveState();
+        }
+        return;
+      }
+      var agentTag = e.target.closest('.agent-filter-tag');
+      if (agentTag) {
+        var container = agentTag.closest('.msg-filter-tags');
+        if (!container) return;
+        var filtersWrap = agentTag.closest('.msg-filters');
+        var teamName = filtersWrap ? filtersWrap.dataset.filterTeam : null;
+        var val = agentTag.dataset.agent;
+        if (agentTag.classList.contains('active') && val !== '__all__') {
+          val = '__all__';
+        }
+        container.querySelectorAll('.agent-filter-tag').forEach(function(t) { t.classList.remove('active'); });
+        var target = container.querySelector('.agent-filter-tag[data-agent="' + CSS.escape(val || '') + '"]');
+        if (target) target.classList.add('active');
+        if (teamName) {
+          msgAgentFilter[teamName] = val;
+          applyMsgFilters(teamName);
+          saveState();
+        }
+      }
+    });
+
+    // Restore saved filter values and apply
+    function activateFilterTag(teamName, filterType, val) {
+      var card = document.querySelector('[data-team="' + teamName + '"]');
+      if (!card) return;
+      if (filterType === 'badge') {
+        var tags = card.querySelectorAll('.badge-filter-tag');
+        tags.forEach(function(t) { t.classList.remove('active'); });
+        var target = card.querySelector('.badge-filter-tag[data-badge="' + (val || '') + '"]');
+        if (target) target.classList.add('active');
+      } else {
+        var tags = card.querySelectorAll('.agent-filter-tag');
+        tags.forEach(function(t) { t.classList.remove('active'); });
+        var target = card.querySelector('.agent-filter-tag[data-agent="' + CSS.escape(val || '') + '"]');
+        if (target) target.classList.add('active');
+      }
+    }
+    Object.keys(msgBadgeFilter).forEach(function(teamName) {
+      activateFilterTag(teamName, 'badge', msgBadgeFilter[teamName]);
+      applyMsgFilters(teamName);
+    });
+    Object.keys(msgAgentFilter).forEach(function(teamName) {
+      activateFilterTag(teamName, 'agent', msgAgentFilter[teamName]);
+      applyMsgFilters(teamName);
+    });
 
     // ---- Collapse/expand all ----
     let allCollapsed = savedState.allCollapsed || false;
@@ -1134,22 +1447,76 @@ export class DashboardPanel {
       vscode.postMessage({ command: 'refresh' });
     });
 
+    document.getElementById('legendBtn').addEventListener('click', () => {
+      document.getElementById('globalLegend').classList.toggle('visible');
+    });
+
+    // ---- Clipboard icon ----
+    var ICON_CLIPBOARD = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="8" height="10" rx="1"/><path d="M3 5v7a1 1 0 001 1h7"/></svg>';
+
     // ---- Delegated click handlers ----
     document.addEventListener('click', (e) => {
+      // Copy button in detail panels
+      var copyBtn = e.target.closest('.detail-copy-btn');
+      if (copyBtn) {
+        e.stopPropagation();
+        var detail = copyBtn.closest('.task-detail') || copyBtn.closest('.msg-detail');
+        if (detail) {
+          var textEl = detail.querySelector('.task-detail-desc') || detail.querySelector('.msg-detail-text');
+          if (textEl) {
+            navigator.clipboard.writeText(textEl.textContent || '').then(function() {
+              var span = copyBtn.querySelector('span');
+              copyBtn.classList.add('copied');
+              if (span) span.textContent = 'Copied!';
+              setTimeout(function() {
+                copyBtn.classList.remove('copied');
+                if (span) span.textContent = 'Copy';
+              }, 1500);
+            });
+          }
+        }
+        return;
+      }
+
+
       // Clear highlight when clicking outside highlighted element
       const hl = document.querySelector('.highlighted');
       if (hl && !e.target.closest('.highlighted')) {
         hl.classList.remove('highlighted');
       }
 
-      // Team action buttons (replay, clean)
+      // Team action buttons (replay, stopTeamReplay, clean)
       const actionBtn = e.target.closest('.team-action-btn');
       if (actionBtn) {
         e.stopPropagation();
         const action = actionBtn.dataset.action;
         const teamName = actionBtn.dataset.actionTeam;
         if (action && teamName) {
-          vscode.postMessage({ command: action + 'Team', teamName: teamName });
+          var msg = { command: action + 'Team', teamName: teamName };
+          if (actionBtn.dataset.recordingDir) {
+            msg.recordingDir = actionBtn.dataset.recordingDir;
+          }
+          vscode.postMessage(msg);
+        }
+        return;
+      }
+
+      // Collapsible messages section bar
+      var msgSectionBar = e.target.closest('.msg-section-bar');
+      if (msgSectionBar) {
+        var teamName = msgSectionBar.dataset.msgSectionTeam;
+        var card = msgSectionBar.closest('.team-card');
+        var feed = card ? card.querySelector('.message-feed') : null;
+        var filters = card ? card.querySelector('.msg-filters') : null;
+        var chevron = msgSectionBar.querySelector('.section-chevron');
+        if (feed) {
+          feed.classList.toggle('collapsed');
+          if (filters) filters.classList.toggle('collapsed');
+          if (chevron) chevron.classList.toggle('collapsed');
+          if (teamName) {
+            collapsedMessages[teamName] = feed.classList.contains('collapsed');
+            saveState();
+          }
         }
         return;
       }
@@ -1247,7 +1614,7 @@ export class DashboardPanel {
     function handleDataUpdate(data) {
       // Update refresh button disabled state
       const refreshBtn = document.getElementById('refreshBtn');
-      if (refreshBtn) { refreshBtn.disabled = !!data.replayMode; }
+      if (refreshBtn) { refreshBtn.disabled = !!data.anyReplayActive; }
 
       const container = document.getElementById('teamsContainer');
       if (!container) return;
@@ -1289,6 +1656,23 @@ export class DashboardPanel {
             if (body) body.classList.add('collapsed');
             if (chev) chev.classList.add('collapsed');
           }
+          // Restore collapsed messages state
+          if (collapsedMessages[team.name]) {
+            var feed = card.querySelector('.message-feed');
+            var filtersEl = card.querySelector('.msg-filters');
+            var msgChev = card.querySelector('.msg-section-bar .section-chevron');
+            if (feed) feed.classList.add('collapsed');
+            if (filtersEl) filtersEl.classList.add('collapsed');
+            if (msgChev) msgChev.classList.add('collapsed');
+          }
+          // Restore filter values on new card
+          if (msgBadgeFilter[team.name]) {
+            activateFilterTag(team.name, 'badge', msgBadgeFilter[team.name]);
+          }
+          if (msgAgentFilter[team.name]) {
+            activateFilterTag(team.name, 'agent', msgAgentFilter[team.name]);
+          }
+          applyMsgFilters(team.name);
         } else {
           // Existing team — patch in place
           patchTeamCard(card, team);
@@ -1313,13 +1697,42 @@ export class DashboardPanel {
     function patchTeamCard(card, team) {
       // Each section wrapped in try-catch so a failure in one doesn't prevent others
       try {
+        // Update replay data attribute on card
+        if (team.replayState) {
+          card.dataset.replayStatus = team.replayState.status;
+        } else {
+          delete card.dataset.replayStatus;
+        }
+
         // Update stats (including team status badge)
         var stats = card.querySelector('.team-stats');
         if (stats) {
-          stats.innerHTML = teamStatusBadgeHtml(team.teamStatus) +
+          stats.innerHTML = teamStatusBadgeHtml(team.teamStatus, team.replayState) +
             '<span>' + team.memberCount + ' agent' + (team.memberCount !== 1 ? 's' : '') + '</span>' +
             '<span>&middot;</span>' +
             '<span>' + team.completedTasks + '/' + team.totalTasks + ' tasks done</span>';
+        }
+
+        // Update team action buttons
+        var actionsContainer = card.querySelector('.team-actions');
+        if (actionsContainer) {
+          actionsContainer.outerHTML = teamActionsHtml(team.name, team.replayState);
+        }
+
+        // Update replay progress bar
+        var existingProgress = card.querySelector('.replay-progress');
+        if (team.replayState && team.replayState.status === 'playing') {
+          if (existingProgress) {
+            var bar = existingProgress.querySelector('.replay-progress-bar');
+            if (bar) bar.style.width = team.replayState.progressPct + '%';
+          } else {
+            var header = card.querySelector('.team-header');
+            if (header) {
+              header.insertAdjacentHTML('afterend', '<div class="replay-progress"><div class="replay-progress-bar" style="width:' + team.replayState.progressPct + '%"></div></div>');
+            }
+          }
+        } else if (existingProgress) {
+          existingProgress.remove();
         }
       } catch(e) { console.warn('[ATM] patchTeamCard stats error:', e); }
 
@@ -1377,6 +1790,39 @@ export class DashboardPanel {
           patchList(msgFeed, team.messages, 'msg');
         }
       } catch(e) { console.warn('[ATM] patchTeamCard messages error:', e); }
+
+      try {
+        // Re-render filter tags if available data changed
+        var filtersWrap = card.querySelector('.msg-filters');
+        if (filtersWrap) {
+          // Re-render badge type tags
+          var badgeTagsContainer = filtersWrap.querySelectorAll('.msg-filter-tags')[0];
+          if (badgeTagsContainer && team.availableBadgeTypes) {
+            var currentBadge = msgBadgeFilter[team.name] || '__all__';
+            var badgeHtml = '<span class="filter-tag-label">Type</span>' +
+              '<button class="filter-tag badge-filter-tag' + (currentBadge === '__all__' ? ' active' : '') + '" data-badge="__all__">All</button>' +
+              team.availableBadgeTypes.map(function(bt) {
+                var isActive = currentBadge === bt.cls;
+                return '<button class="filter-tag badge-filter-tag' + (isActive ? ' active' : '') + '" data-badge="' + esc(bt.cls) + '">' + esc(bt.text) + '</button>';
+              }).join('');
+            badgeTagsContainer.innerHTML = badgeHtml;
+          }
+          // Re-render agent tags
+          var agentTagsContainer = filtersWrap.querySelectorAll('.msg-filter-tags')[1];
+          if (agentTagsContainer && team.availableAgents) {
+            var currentAgent = msgAgentFilter[team.name] || '__all__';
+            var agentHtml = '<span class="filter-tag-label">Agent</span>' +
+              '<button class="filter-tag agent-filter-tag' + (currentAgent === '__all__' ? ' active' : '') + '" data-agent="__all__">All</button>' +
+              team.availableAgents.map(function(a) {
+                var isActive = currentAgent === a;
+                return '<button class="filter-tag agent-filter-tag' + (isActive ? ' active' : '') + '" data-agent="' + esc(a) + '">' + esc(a) + '</button>';
+              }).join('');
+            agentTagsContainer.innerHTML = agentHtml;
+          }
+        }
+        // Re-apply message filters after patching
+        if (team.name) applyMsgFilters(team.name);
+      } catch(e) { console.warn('[ATM] patchTeamCard filters error:', e); }
     }
 
     function patchList(container, items, type) {
@@ -1446,7 +1892,10 @@ export class DashboardPanel {
         '<span class="task-agent agent-text-' + colorName + '">' + esc(subject) + '</span>' +
         '<span class="status-badge ' + statusClass + '">' + badgeLabel + '</span>' +
         '</div><div class="task-desc-preview">' + esc(t.description || '') + '</div></div></div>' +
-        '<div class="task-detail"><div class="task-detail-desc">' + (t.fullPromptHtml || esc(t.description || '')) + '</div>' +
+        '<div class="task-detail">' +
+        '<div class="task-detail-desc">' +
+        '<button class="detail-copy-btn" title="Copy to clipboard">' + ICON_CLIPBOARD + ' <span>Copy</span></button>' +
+        (t.fullPromptHtml || esc(t.description || '')) + '</div>' +
         (blockedBy.length > 0 ? '<div class="task-deps">Blocked by: #' + blockedBy.map(function(b) { return esc(String(b)); }).join(', #') + '</div>' : '') +
         (blocks.length > 0 ? '<div class="task-deps">Blocks: #' + blocks.map(function(b) { return esc(String(b)); }).join(', #') + '</div>' : '') +
         '</div>';
@@ -1454,7 +1903,7 @@ export class DashboardPanel {
 
     function renderMsgRow(m) {
       var badgeHtml = m.badgeClass ? '<span class="msg-badge ' + m.badgeClass + '">' + m.badgeText + '</span>' : '';
-      return '<div class="msg-row" tabindex="0" role="button" aria-expanded="false" data-msg-id="' + esc(m.id) + '" data-team="' + esc(m.teamName || '') + '">' +
+      return '<div class="msg-row" tabindex="0" role="button" aria-expanded="false" data-msg-id="' + esc(m.id) + '" data-team="' + esc(m.teamName || '') + '" data-badge="' + (m.badgeClass || '') + '" data-from="' + esc(m.from) + '" data-to="' + esc(m.to) + '">' +
         '<div class="msg-color-bar agent-color-' + m.fromColor + '"></div>' +
         '<div class="msg-body-wrap"><div class="msg-header">' +
         '<span class="msg-chevron">&#9656;</span>' +
@@ -1464,25 +1913,40 @@ export class DashboardPanel {
         badgeHtml +
         '<span class="msg-time">' + m.time + '</span>' +
         '</div><div class="msg-preview">' + esc(m.preview) + '</div></div></div>' +
-        '<div class="msg-detail"><div class="msg-detail-text">' +
-        (m.isTyped ? '<pre>' + esc(m.fullText) + '</pre>' : (m.fullTextHtml || esc(m.fullText))) +
+        '<div class="msg-detail">' +
+        '<div class="msg-detail-text">' +
+        '<button class="detail-copy-btn" title="Copy to clipboard">' + ICON_CLIPBOARD + ' <span>Copy</span></button>' +
+        (m.isTyped ? '<pre>' + (m.fullTextHighlighted || esc(m.fullText)) + '</pre>' : (m.fullTextHtml || esc(m.fullText))) +
         '</div></div>';
     }
 
-    function teamStatusBadgeHtml(ts) {
+    function teamStatusBadgeHtml(ts, replayState) {
+      if (replayState) {
+        if (replayState.status === 'playing') return '<span class="team-status-badge ts-replaying">replaying</span>';
+        if (replayState.status === 'completed') return '<span class="team-status-badge ts-replay-done">replay complete</span>';
+        if (replayState.status === 'stopped') return '<span class="team-status-badge ts-replay-stopped">replay stopped</span>';
+      }
       if (ts === 'completed') return '<span class="team-status-badge ts-completed">completed</span>';
       if (ts === 'winding_down') return '<span class="team-status-badge ts-winding-down">winding down</span>';
       return '<span class="team-status-badge ts-active">active</span>';
     }
 
     var ICON_REPLAY = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>';
+    var ICON_STOP = '<svg viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="3" width="10" height="10" rx="1"/></svg>';
     var ICON_TRASH = '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 1.5h5M2.5 4h11M6 7v4M10 7v4M3.5 4l.75 8.5a1 1 0 0 0 1 .9h5.5a1 1 0 0 0 1-.9L12.5 4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-    function teamActionsHtml(teamName) {
-      return '<div class="team-actions">' +
-        '<button class="team-action-btn" data-action="replay" data-action-team="' + esc(teamName) + '" title="Replay this session">' + ICON_REPLAY + '</button>' +
-        '<button class="team-action-btn" data-action="clean" data-action-team="' + esc(teamName) + '" title="Remove team files from disk">' + ICON_TRASH + '</button>' +
-        '</div>';
+    function teamActionsHtml(teamName, replayState) {
+      var html = '<div class="team-actions">';
+      if (replayState && replayState.status === 'playing') {
+        html += '<button class="team-action-btn" data-action="stopTeamReplay" data-action-team="' + esc(teamName) + '" title="Stop replay">' + ICON_STOP + '</button>';
+      } else if (replayState && (replayState.status === 'completed' || replayState.status === 'stopped')) {
+        html += '<button class="team-action-btn" data-action="replay" data-action-team="' + esc(teamName) + '" data-recording-dir="' + esc(replayState.recordingDir || '') + '" title="Replay again">' + ICON_REPLAY + '</button>';
+      } else {
+        html += '<button class="team-action-btn" data-action="replay" data-action-team="' + esc(teamName) + '" title="Replay this session">' + ICON_REPLAY + '</button>';
+        html += '<button class="team-action-btn" data-action="clean" data-action-team="' + esc(teamName) + '" title="Remove team files from disk">' + ICON_TRASH + '</button>';
+      }
+      html += '</div>';
+      return html;
     }
 
     function renderTeamCard(team) {
@@ -1519,20 +1983,42 @@ export class DashboardPanel {
         }
       }
 
-      return '<div class="team-card" data-team="' + esc(team.name) + '">' +
+      var replayAttr = team.replayState ? ' data-replay-status="' + esc(team.replayState.status) + '"' : '';
+      var replayProgressHtml = (team.replayState && team.replayState.status === 'playing')
+        ? '<div class="replay-progress"><div class="replay-progress-bar" style="width:' + team.replayState.progressPct + '%"></div></div>'
+        : '';
+
+      return '<div class="team-card" data-team="' + esc(team.name) + '"' + replayAttr + '>' +
         '<div class="team-header" tabindex="0" role="button" aria-expanded="true">' +
         '<span class="chevron">&#9662;</span>' +
         '<span class="team-name">' + esc(team.name) + '</span>' +
-        '<div class="team-stats">' + teamStatusBadgeHtml(team.teamStatus) +
+        '<div class="team-stats">' + teamStatusBadgeHtml(team.teamStatus, team.replayState) +
         '<span>' + agentCount + ' agent' + (agentCount !== 1 ? 's' : '') + '</span>' +
         '<span>&middot;</span><span>' + team.completedTasks + '/' + team.totalTasks + ' tasks done</span></div>' +
-        teamActionsHtml(team.name) + '</div>' +
+        teamActionsHtml(team.name, team.replayState) + '</div>' +
+        replayProgressHtml +
         '<div class="team-body"><div class="agent-strip">' + agentsHtml + '</div>' +
         '<div class="section-bar"><span>Tasks</span>' +
         '<div class="progress-track"><div class="progress-fill" style="width:' + progressPct + '%"></div></div>' +
         '<span class="section-count">' + team.completedTasks + '/' + team.totalTasks + '</span></div>' +
         '<div class="task-list">' + tasksHtml + '</div>' +
-        '<div class="section-bar"><span>Messages</span><span class="section-count">' + team.messages.length + '</span></div>' +
+        '<div class="section-bar clickable msg-section-bar" data-msg-section-team="' + esc(team.name) + '">' +
+        '<span class="section-chevron">&#9662;</span><span>Messages</span><span class="section-count">' + team.messages.length + '</span></div>' +
+        '<div class="msg-filters" data-filter-team="' + esc(team.name) + '">' +
+        '<div class="msg-filter-tags">' +
+        '<span class="filter-tag-label">Type</span>' +
+        '<button class="filter-tag badge-filter-tag active" data-badge="__all__">All</button>' +
+        (team.availableBadgeTypes || []).map(function(bt) {
+          return '<button class="filter-tag badge-filter-tag" data-badge="' + esc(bt.cls) + '">' + esc(bt.text) + '</button>';
+        }).join('') +
+        '</div>' +
+        '<div class="msg-filter-tags">' +
+        '<span class="filter-tag-label">Agent</span>' +
+        '<button class="filter-tag agent-filter-tag active" data-agent="__all__">All</button>' +
+        (team.availableAgents || []).map(function(a) {
+          return '<button class="filter-tag agent-filter-tag" data-agent="' + esc(a) + '">' + esc(a) + '</button>';
+        }).join('') +
+        '</div></div>' +
         '<div class="message-feed">' + msgsHtml + '</div></div></div>';
     }
 
@@ -1612,7 +2098,10 @@ export class DashboardPanel {
           </div>
         </div>
         <div class="task-detail">
-          <div class="task-detail-desc">${formatPromptHtml(team.members.find(m => m.name === task.subject)?.prompt || task.description || '')}</div>
+          <div class="task-detail-desc">
+            <button class="detail-copy-btn" title="Copy to clipboard">${SVG_ICONS.clipboard} <span>Copy</span></button>
+            ${formatPromptHtml(team.members.find(m => m.name === task.subject)?.prompt || task.description || '')}
+          </div>
           ${blockedBy.length > 0 ? `<div class="task-deps">Blocked by: #${blockedBy.map(escapeHtml).join(', #')}</div>` : ''}
           ${blocks.length > 0 ? `<div class="task-deps">Blocks: #${blocks.map(escapeHtml).join(', #')}</div>` : ''}
         </div>`;
@@ -1637,16 +2126,19 @@ export class DashboardPanel {
       const isBroadcast = !typed && broadcasts.has(fp);
 
       let badgeHtml = '';
+      let badgeClassAttr = '';
       let preview = '';
       let fullText = '';
 
       if (typed) {
         const { badgeClass, badgeText } = getTypedBadge(typed);
+        badgeClassAttr = badgeClass;
         badgeHtml = `<span class="msg-badge ${badgeClass}">${badgeText}</span>`;
         preview = entry.summary || getTypedPreview(typed);
         fullText = JSON.stringify(typed, null, 2);
       } else {
         if (isBroadcast) {
+          badgeClassAttr = 'badge-broadcast';
           badgeHtml = `<span class="msg-badge badge-broadcast">broadcast</span>`;
         }
         preview = entry.summary || entry.text.slice(0, 100).replace(/\n/g, ' ');
@@ -1657,7 +2149,8 @@ export class DashboardPanel {
       const msgId = `${entry.from}-${entry.timestamp}`;
       messagesHtml += `
         <div class="msg-row" tabindex="0" role="button" aria-expanded="false"
-             data-msg-id="${escapeHtml(msgId)}" data-team="${escapeHtml(team.name)}">
+             data-msg-id="${escapeHtml(msgId)}" data-team="${escapeHtml(team.name)}"
+             data-badge="${escapeHtml(badgeClassAttr)}" data-from="${escapeHtml(entry.from)}" data-to="${escapeHtml(inboxOwner)}">
           <div class="msg-color-bar agent-color-${fromColor}"></div>
           <div class="msg-body-wrap">
             <div class="msg-header">
@@ -1672,12 +2165,38 @@ export class DashboardPanel {
           </div>
         </div>
         <div class="msg-detail">
-          <div class="msg-detail-text">${typed ? `<pre>${escapeHtml(fullText)}</pre>` : formatPromptHtml(fullText)}</div>
+          <div class="msg-detail-text">
+            <button class="detail-copy-btn" title="Copy to clipboard">${SVG_ICONS.clipboard} <span>Copy</span></button>
+            ${typed ? `<pre>${highlightJsonHtml(fullText)}</pre>` : formatPromptHtml(fullText)}
+          </div>
         </div>`;
     }
     if (sorted.length === 0) {
       messagesHtml = '<div style="padding:4px 8px;opacity:0.45;font-size:0.9em">No messages</div>';
     }
+
+    // Compute available filter values from actual messages
+    const badgeSet = new Set<string>();
+    const agentSet = new Set<string>();
+    for (const { entry, inboxOwner } of messages) {
+      const typed = parseTypedMessage(entry.text);
+      if (typed) {
+        badgeSet.add(getTypedBadge(typed).badgeClass);
+      } else {
+        const fp = `${entry.from}\0${entry.timestamp.slice(0, 19)}\0${entry.text}`;
+        if (broadcasts.has(fp)) { badgeSet.add('badge-broadcast'); }
+        else { badgeSet.add(''); }
+      }
+      agentSet.add(entry.from);
+      agentSet.add(inboxOwner);
+    }
+    const badgeTagsHtml = Array.from(badgeSet).map(cls => {
+      const text = cls === '' ? 'Plain' : cls.replace('badge-', '');
+      return `<button class="filter-tag badge-filter-tag" data-badge="${escapeHtml(cls)}">${escapeHtml(text)}</button>`;
+    }).join('');
+    const agentTagsHtml = Array.from(agentSet).sort().map(a =>
+      `<button class="filter-tag agent-filter-tag" data-agent="${escapeHtml(a)}">${escapeHtml(a)}</button>`
+    ).join('');
 
     return `
     <div class="team-card" data-team="${escapeHtml(team.name)}">
@@ -1709,9 +2228,22 @@ export class DashboardPanel {
         </div>
         <div class="task-list">${tasksHtml}</div>
 
-        <div class="section-bar">
+        <div class="section-bar clickable msg-section-bar" data-msg-section-team="${escapeHtml(team.name)}">
+          <span class="section-chevron">&#9662;</span>
           <span>Messages</span>
           <span class="section-count">${sorted.length}</span>
+        </div>
+        <div class="msg-filters" data-filter-team="${escapeHtml(team.name)}">
+          <div class="msg-filter-tags">
+            <span class="filter-tag-label">Type</span>
+            <button class="filter-tag badge-filter-tag active" data-badge="__all__">All</button>
+            ${badgeTagsHtml}
+          </div>
+          <div class="msg-filter-tags">
+            <span class="filter-tag-label">Agent</span>
+            <button class="filter-tag agent-filter-tag active" data-agent="__all__">All</button>
+            ${agentTagsHtml}
+          </div>
         </div>
         <div class="message-feed">${messagesHtml}</div>
       </div>
@@ -1730,6 +2262,30 @@ export class DashboardPanel {
     }
     return result;
   }
+}
+
+// --- Legend HTML (shared between TS and JS render paths) ---
+
+function getLegendHtml(): string {
+  return `
+    <div class="legend-section"><div class="legend-title">Task Status</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--atm-status-green);position:relative;"><span style="display:block;width:3px;height:5px;border:solid white;border-width:0 1.5px 1.5px 0;transform:rotate(45deg);margin-top:-1px;"></span></span> Completed</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--atm-status-blue);"></span> In Progress</div>
+      <div class="legend-item"><span class="legend-dot" style="background:transparent;border:1.5px solid var(--vscode-descriptionForeground);"></span> Pending</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--atm-status-yellow);"></span> Blocked</div></div>
+    <div class="legend-section"><div class="legend-title">Agent Lifecycle</div>
+      <div class="legend-item"><span class="legend-badge-sample" style="color:var(--atm-status-yellow);">IDLE</span> Waiting for input</div>
+      <div class="legend-item"><span class="legend-badge-sample" style="color:var(--atm-status-orange);">SHUTTING DOWN</span> Graceful shutdown</div>
+      <div class="legend-item"><span class="legend-badge-sample" style="color:var(--atm-status-red);">SHUTDOWN</span> Terminated</div>
+      <div class="legend-item"><span class="legend-badge-sample" style="color:var(--atm-status-purple);">PLAN</span> Plan mode</div></div>
+    <div class="legend-section"><div class="legend-title">Message Types</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-permission">permission</span> Permission request</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-approved">approved</span> Approved</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-denied">denied</span> Denied / Rejected</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-broadcast">broadcast</span> Sent to all agents</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-plan">plan</span> Plan review</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-idle">idle</span> Idle notification</div>
+      <div class="legend-item"><span class="legend-badge-sample badge-shutdown">shutdown</span> Shutdown signal</div></div>`;
 }
 
 // --- Helpers ---
@@ -1793,6 +2349,24 @@ function formatPromptHtml(text: string): string {
   return md.render(text);
 }
 
+/** Syntax-highlight a JSON string (expects raw JSON, not HTML-escaped) */
+function highlightJsonHtml(jsonStr: string): string {
+  return escapeHtml(jsonStr).replace(
+    /(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false)\b|\b(null)\b|(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)/g,
+    (match, str, colon, bool, nil, num) => {
+      if (str) {
+        return colon
+          ? `<span class="json-key">${str}</span>${colon}`
+          : `<span class="json-string">${str}</span>`;
+      }
+      if (bool) { return `<span class="json-boolean">${bool}</span>`; }
+      if (nil) { return `<span class="json-null">${nil}</span>`; }
+      if (num) { return `<span class="json-number">${num}</span>`; }
+      return match;
+    }
+  );
+}
+
 function getNonce(): string {
   let text = '';
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -1809,4 +2383,5 @@ const SVG_ICONS = {
   agents: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3"/><circle cx="5" cy="16" r="2.5"/><circle cx="19" cy="16" r="2.5"/><line x1="12" y1="11" x2="7" y2="14"/><line x1="12" y1="11" x2="17" y2="14"/></svg>`,
   replay: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 2.5v11l9-5.5z"/></svg>`,
   trash: `<svg viewBox="0 0 16 16" fill="currentColor"><path d="M5.5 1.5h5M2.5 4h11M6 7v4M10 7v4M3.5 4l.75 8.5a1 1 0 0 0 1 .9h5.5a1 1 0 0 0 1-.9L12.5 4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  clipboard: `<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="8" height="10" rx="1"/><path d="M3 5v7a1 1 0 001 1h7"/></svg>`,
 };

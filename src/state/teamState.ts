@@ -1,22 +1,24 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { TeamConfig, AgentTask, InboxEntry, parseTypedMessage, isTeamLead } from '../types';
+import { TeamReplayState } from '../replay/types';
 
 type TeamStateEvent =
   | { type: 'teamAdded'; teamName: string }
   | { type: 'teamUpdated'; teamName: string }
   | { type: 'teamRemoved'; teamName: string }
   | { type: 'taskUpdated'; teamName: string; task: AgentTask }
-  | { type: 'messageReceived'; teamName: string; agentName: string };
+  | { type: 'messageReceived'; teamName: string; agentName: string }
+  | { type: 'replayStateChanged'; teamName: string };
 
 export class TeamStateManager {
   private teams = new Map<string, TeamConfig>();
   private tasks = new Map<string, AgentTask[]>();
   private messages = new Map<string, Map<string, InboxEntry[]>>(); // teamName -> agentName -> entries
+  private replayingTeams = new Map<string, TeamReplayState>();
 
   private workspacePaths: string[] = [];
   private showAll = false;
-  replayMode = false;
 
   private _onDidChange = new vscode.EventEmitter<TeamStateEvent>();
   readonly onDidChange = this._onDidChange.event;
@@ -38,6 +40,8 @@ export class TeamStateManager {
   }
 
   removeTeam(name: string): void {
+    // Don't remove teams that are currently being replayed (they don't exist on disk)
+    if (this.replayingTeams.has(name)) { return; }
     this.teams.delete(name);
     this.tasks.delete(name);
     this.messages.delete(name);
@@ -117,6 +121,39 @@ export class TeamStateManager {
 
   getAllMessages(): Map<string, Map<string, InboxEntry[]>> {
     return this.messages;
+  }
+
+  // --- Replay State ---
+
+  get replayMode(): boolean { return this.isAnyReplayActive(); }
+
+  setTeamReplayState(teamName: string, replayState: TeamReplayState): void {
+    this.replayingTeams.set(teamName, replayState);
+    this._onDidChange.fire({ type: 'replayStateChanged', teamName });
+  }
+
+  clearTeamReplayState(teamName: string): void {
+    this.replayingTeams.delete(teamName);
+    this._onDidChange.fire({ type: 'replayStateChanged', teamName });
+  }
+
+  getTeamReplayState(teamName: string): TeamReplayState | undefined {
+    return this.replayingTeams.get(teamName);
+  }
+
+  isTeamReplaying(teamName: string): boolean {
+    return this.replayingTeams.has(teamName);
+  }
+
+  isAnyReplayActive(): boolean {
+    for (const state of this.replayingTeams.values()) {
+      if (state.status === 'playing') { return true; }
+    }
+    return false;
+  }
+
+  getReplayingTeamNames(): string[] {
+    return [...this.replayingTeams.keys()];
   }
 
   // --- Workspace Filtering ---
