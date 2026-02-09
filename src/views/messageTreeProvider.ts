@@ -3,7 +3,11 @@ import { TeamStateManager } from '../state/teamState';
 import { InboxEntry, parseTypedMessage, TypedMessage } from '../types';
 import { formatTime } from '../utils';
 
-type MessageTreeElement = InboxGroup | MessageNode;
+type MessageTreeElement = TeamMessageGroup | InboxGroup | MessageNode;
+
+class TeamMessageGroup {
+  constructor(public readonly teamName: string) {}
+}
 
 class InboxGroup {
   constructor(
@@ -71,6 +75,9 @@ export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeE
   }
 
   getTreeItem(element: MessageTreeElement): vscode.TreeItem {
+    if (element instanceof TeamMessageGroup) {
+      return this.getTeamGroupItem(element);
+    }
     if (element instanceof InboxGroup) {
       return this.getInboxGroupItem(element);
     }
@@ -79,10 +86,28 @@ export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeE
 
   getChildren(element?: MessageTreeElement): MessageTreeElement[] {
     if (!element) {
-      if (this.groupByInbox) {
-        return this.getInboxGroupRoots();
+      const teamNames = this.state.getFilteredTeamNames();
+      if (teamNames.length === 0) { return []; }
+
+      // Single team: show messages/inbox groups directly
+      if (teamNames.length === 1) {
+        if (this.groupByInbox) {
+          return this.getInboxGroupsForTeam(teamNames[0]);
+        }
+        return this.getTimelineMessagesForTeam(teamNames[0]);
       }
-      return this.getTimelineMessages();
+
+      // Multiple teams: group by team first
+      return teamNames
+        .filter(name => this.teamHasMessages(name))
+        .map(name => new TeamMessageGroup(name));
+    }
+
+    if (element instanceof TeamMessageGroup) {
+      if (this.groupByInbox) {
+        return this.getInboxGroupsForTeam(element.teamName);
+      }
+      return this.getTimelineMessagesForTeam(element.teamName);
     }
 
     if (element instanceof InboxGroup) {
@@ -95,35 +120,53 @@ export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeE
     return [];
   }
 
-  private getTimelineMessages(): MessageNode[] {
-    const allMessages: MessageNode[] = [];
-
-    for (const teamName of this.state.getFilteredTeamNames()) {
-      const teamMsgs = this.state.getFilteredMessages().get(teamName);
-      if (!teamMsgs) { continue; }
-      for (const [agentName, entries] of teamMsgs) {
-        for (const entry of entries) {
-          allMessages.push(new MessageNode(entry, teamName, agentName));
-        }
-      }
+  private teamHasMessages(teamName: string): boolean {
+    const teamMsgs = this.state.getFilteredMessages().get(teamName);
+    if (!teamMsgs) { return false; }
+    for (const [, entries] of teamMsgs) {
+      if (entries.length > 0) { return true; }
     }
-
-    allMessages.sort((a, b) => b.entry.timestamp.localeCompare(a.entry.timestamp));
-    return allMessages;
+    return false;
   }
 
-  private getInboxGroupRoots(): InboxGroup[] {
+  private getTimelineMessagesForTeam(teamName: string): MessageNode[] {
+    const msgs: MessageNode[] = [];
+    const teamMsgs = this.state.getFilteredMessages().get(teamName);
+    if (!teamMsgs) { return msgs; }
+    for (const [agentName, entries] of teamMsgs) {
+      for (const entry of entries) {
+        msgs.push(new MessageNode(entry, teamName, agentName));
+      }
+    }
+    msgs.sort((a, b) => b.entry.timestamp.localeCompare(a.entry.timestamp));
+    return msgs;
+  }
+
+  private getInboxGroupsForTeam(teamName: string): InboxGroup[] {
     const groups: InboxGroup[] = [];
-    for (const teamName of this.state.getFilteredTeamNames()) {
-      const teamMsgs = this.state.getFilteredMessages().get(teamName);
-      if (!teamMsgs) { continue; }
-      for (const [agentName, entries] of teamMsgs) {
-        if (entries.length > 0) {
-          groups.push(new InboxGroup(agentName, teamName));
-        }
+    const teamMsgs = this.state.getFilteredMessages().get(teamName);
+    if (!teamMsgs) { return groups; }
+    for (const [agentName, entries] of teamMsgs) {
+      if (entries.length > 0) {
+        groups.push(new InboxGroup(agentName, teamName));
       }
     }
     return groups;
+  }
+
+  private getTeamGroupItem(group: TeamMessageGroup): vscode.TreeItem {
+    let count = 0;
+    const teamMsgs = this.state.getFilteredMessages().get(group.teamName);
+    if (teamMsgs) {
+      for (const [, entries] of teamMsgs) { count += entries.length; }
+    }
+    const item = new vscode.TreeItem(
+      group.teamName,
+      vscode.TreeItemCollapsibleState.Expanded
+    );
+    item.description = `${count} message${count !== 1 ? 's' : ''}`;
+    item.iconPath = new vscode.ThemeIcon('comment-discussion');
+    return item;
   }
 
   private getInboxGroupItem(group: InboxGroup): vscode.TreeItem {

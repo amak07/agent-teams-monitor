@@ -87,22 +87,22 @@
       {
         "command": "agentTeams.tasks.groupByAgent",
         "title": "Group Tasks by Agent",
-        "icon": "$(list-tree)"
+        "icon": "$(group-by-ref-type)"
       },
       {
         "command": "agentTeams.tasks.groupByTimeline",
         "title": "Show Tasks by Timeline",
-        "icon": "$(list-flat)"
+        "icon": "$(history)"
       },
       {
         "command": "agentTeams.messages.groupByInbox",
         "title": "Group Messages by Inbox",
-        "icon": "$(list-tree)"
+        "icon": "$(group-by-ref-type)"
       },
       {
         "command": "agentTeams.messages.groupByTimeline",
         "title": "Show Messages by Timeline",
-        "icon": "$(list-flat)"
+        "icon": "$(history)"
       },
       {
         "command": "agentTeams.openDashboard",
@@ -143,42 +143,42 @@
         {
           "command": "agentTeams.openDashboard",
           "when": "view =~ /^agentTeams\\./",
-          "group": "navigation"
+          "group": "navigation@1"
         },
         {
           "command": "agentTeams.replaySession",
           "when": "view == agentTeams.agents && !agentTeams.replaying",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "agentTeams.stopReplay",
           "when": "view == agentTeams.agents && agentTeams.replaying",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "agentTeams.refresh",
           "when": "view == agentTeams.agents",
-          "group": "navigation"
+          "group": "navigation@3"
         },
         {
           "command": "agentTeams.tasks.groupByAgent",
           "when": "view == agentTeams.tasks && !agentTeams.tasks.groupedByAgent",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "agentTeams.tasks.groupByTimeline",
           "when": "view == agentTeams.tasks && agentTeams.tasks.groupedByAgent",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "agentTeams.messages.groupByInbox",
           "when": "view == agentTeams.messages && !agentTeams.messages.groupedByInbox",
-          "group": "navigation"
+          "group": "navigation@2"
         },
         {
           "command": "agentTeams.messages.groupByTimeline",
           "when": "view == agentTeams.messages && agentTeams.messages.groupedByInbox",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [

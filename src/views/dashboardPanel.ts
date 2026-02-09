@@ -668,6 +668,21 @@ export class DashboardPanel {
       flex: 1;
       min-width: 0;
     }
+    .task-chevron {
+      font-size: 0.7em;
+      opacity: 0.4;
+      transition: transform 200ms;
+      flex-shrink: 0;
+      display: inline-block;
+      margin-top: 4px;
+    }
+    .task-row[aria-expanded="true"] .task-chevron {
+      transform: rotate(90deg);
+      opacity: 0.7;
+    }
+    .task-row[aria-expanded="true"] {
+      background: var(--atm-overlay-subtle);
+    }
     .task-header {
       display: flex;
       align-items: center;
@@ -718,7 +733,11 @@ export class DashboardPanel {
       min-height: 40px;
       overflow-y: auto;
       padding: 8px 8px 12px 28px;
-      border-top: 1px solid var(--vscode-panel-border);
+      background: color-mix(in srgb, var(--vscode-editor-background) 50%, var(--vscode-sideBar-background, transparent));
+      border-left: 3px solid var(--vscode-panel-border);
+      margin-left: 8px;
+      margin-bottom: 4px;
+      border-bottom: 1px solid var(--vscode-panel-border);
     }
     .task-detail-desc {
       font-size: 0.9em;
@@ -772,6 +791,20 @@ export class DashboardPanel {
       align-items: center;
       gap: 6px;
       flex-wrap: wrap;
+    }
+    .msg-chevron {
+      font-size: 0.7em;
+      opacity: 0.4;
+      transition: transform 200ms;
+      flex-shrink: 0;
+      display: inline-block;
+    }
+    .msg-row[aria-expanded="true"] .msg-chevron {
+      transform: rotate(90deg);
+      opacity: 0.7;
+    }
+    .msg-row[aria-expanded="true"] {
+      background: var(--atm-overlay-subtle);
     }
     .msg-from {
       font-weight: 500;
@@ -827,6 +860,11 @@ export class DashboardPanel {
       min-height: 60px;
       overflow-y: auto;
       padding: 8px 10px 10px 10px;
+      background: color-mix(in srgb, var(--vscode-editor-background) 50%, var(--vscode-sideBar-background, transparent));
+      border-left: 3px solid var(--vscode-panel-border);
+      margin-left: 3px;
+      margin-bottom: 4px;
+      border-bottom: 1px solid var(--vscode-panel-border);
     }
     .msg-detail-text {
       font-size: 0.85em;
@@ -1026,7 +1064,10 @@ export class DashboardPanel {
         const el = document.querySelector('[data-task-id="' + key + '"], [data-msg-id="' + key + '"]');
         if (el) {
           const detail = el.nextElementSibling;
-          if (detail) detail.classList.add('expanded');
+          if (detail) {
+            detail.classList.add('expanded');
+            el.setAttribute('aria-expanded', 'true');
+          }
         }
       }
     });
@@ -1120,9 +1161,11 @@ export class DashboardPanel {
         const detail = taskRow.nextElementSibling;
         if (detail && detail.classList.contains('task-detail')) {
           detail.classList.toggle('expanded');
+          const isExpanded = detail.classList.contains('expanded');
+          taskRow.setAttribute('aria-expanded', String(isExpanded));
           const key = taskRow.dataset.taskId;
           if (key) {
-            expandedItems[key] = detail.classList.contains('expanded');
+            expandedItems[key] = isExpanded;
             saveState();
           }
         }
@@ -1134,9 +1177,11 @@ export class DashboardPanel {
         const detail = msgRow.nextElementSibling;
         if (detail && detail.classList.contains('msg-detail')) {
           detail.classList.toggle('expanded');
+          const isExpanded = detail.classList.contains('expanded');
+          msgRow.setAttribute('aria-expanded', String(isExpanded));
           const key = msgRow.dataset.msgId;
           if (key) {
-            expandedItems[key] = detail.classList.contains('expanded');
+            expandedItems[key] = isExpanded;
             saveState();
           }
         }
@@ -1170,7 +1215,10 @@ export class DashboardPanel {
             collapsedTeams[card.dataset.team] = false;
           }
           const detail = el.nextElementSibling;
-          if (detail) { detail.classList.add('expanded'); }
+          if (detail) {
+            detail.classList.add('expanded');
+            el.setAttribute('aria-expanded', 'true');
+          }
           const prev = document.querySelector('.highlighted');
           if (prev) { prev.classList.remove('highlighted'); }
           el.classList.add('highlighted');
@@ -1324,13 +1372,17 @@ export class DashboardPanel {
       var rowClass = type === 'task' ? 'task-row' : 'msg-row';
       var detailClass = type === 'task' ? 'task-detail' : 'msg-detail';
 
-      // Build map of existing expanded items
+      // Build map of existing expanded items and preserve scroll positions
       var existingExpanded = {};
+      var scrollPositions = {};
       container.querySelectorAll('.' + detailClass + '.expanded').forEach(function(el) {
         var row = el.previousElementSibling;
         if (row) {
           var key = row.getAttribute(idAttr);
-          if (key) existingExpanded[key] = true;
+          if (key) {
+            existingExpanded[key] = true;
+            if (el.scrollTop > 0) { scrollPositions[key] = el.scrollTop; }
+          }
         }
       });
 
@@ -1350,13 +1402,15 @@ export class DashboardPanel {
       }
       container.innerHTML = html;
 
-      // Restore expanded state
+      // Restore expanded state and scroll positions
       for (var key in existingExpanded) {
         var row = container.querySelector('[' + idAttr + '="' + key + '"]');
         if (row) {
           var detail = row.nextElementSibling;
           if (detail && detail.classList.contains(detailClass)) {
             detail.classList.add('expanded');
+            row.setAttribute('aria-expanded', 'true');
+            if (scrollPositions[key]) { detail.scrollTop = scrollPositions[key]; }
           }
         }
       }
@@ -1373,6 +1427,7 @@ export class DashboardPanel {
       var blocks = Array.isArray(t.blocks) ? t.blocks : [];
 
       return '<div class="task-row" tabindex="0" role="button" aria-expanded="false" data-task-id="' + esc(id) + '" data-team="' + esc(teamName) + '">' +
+        '<span class="task-chevron">&#9656;</span>' +
         '<span class="status-dot ' + statusClass + '" aria-label="' + badgeLabel + '"></span>' +
         '<div class="task-content"><div class="task-header">' +
         '<span class="task-id">#' + esc(id) + '</span>' +
@@ -1390,6 +1445,7 @@ export class DashboardPanel {
       return '<div class="msg-row" tabindex="0" role="button" aria-expanded="false" data-msg-id="' + esc(m.id) + '" data-team="' + esc(m.teamName || '') + '">' +
         '<div class="msg-color-bar agent-color-' + m.fromColor + '"></div>' +
         '<div class="msg-body-wrap"><div class="msg-header">' +
+        '<span class="msg-chevron">&#9656;</span>' +
         '<span class="msg-from">' + esc(m.from) + '</span>' +
         '<span class="msg-arrow">&rarr;</span>' +
         '<span class="msg-to">' + esc(m.to) + '</span>' +
@@ -1529,6 +1585,7 @@ export class DashboardPanel {
       tasksHtml += `
         <div class="task-row" tabindex="0" role="button" aria-expanded="false"
              data-task-id="${escapeHtml(task.id)}" data-team="${escapeHtml(team.name)}">
+          <span class="task-chevron">&#9656;</span>
           <span class="status-dot ${statusClass}" aria-label="${badgeLabel}"></span>
           <div class="task-content">
             <div class="task-header">
@@ -1583,6 +1640,7 @@ export class DashboardPanel {
           <div class="msg-color-bar agent-color-${fromColor}"></div>
           <div class="msg-body-wrap">
             <div class="msg-header">
+              <span class="msg-chevron">&#9656;</span>
               <span class="msg-from">${escapeHtml(entry.from)}</span>
               <span class="msg-arrow">&rarr;</span>
               <span class="msg-to">${escapeHtml(inboxOwner)}</span>
