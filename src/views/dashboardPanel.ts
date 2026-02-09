@@ -195,7 +195,7 @@ export class DashboardPanel {
                 const fromColor = getFromColorName(entry);
                 const typed = parseTypedMessage(entry.text);
                 let badgeClass = '', badgeText = '', preview = '', fullText = '';
-                const fp = `${entry.from}\0${entry.timestamp}\0${entry.text}`;
+                const fp = `${entry.from}\0${entry.timestamp.slice(0, 19)}\0${entry.text}`;
                 const isBroadcast = !typed && broadcasts.has(fp);
 
                 if (typed) {
@@ -1633,7 +1633,7 @@ export class DashboardPanel {
       const time = formatTime(entry.timestamp);
       const fromColor = getFromColorName(entry);
       const typed = parseTypedMessage(entry.text);
-      const fp = `${entry.from}\0${entry.timestamp}\0${entry.text}`;
+      const fp = `${entry.from}\0${entry.timestamp.slice(0, 19)}\0${entry.text}`;
       const isBroadcast = !typed && broadcasts.has(fp);
 
       let badgeHtml = '';
@@ -1771,11 +1771,13 @@ function getTypedPreview(typed: { type: string; description?: string; reason?: s
   return typed.type.replace(/_/g, ' ');
 }
 
-/** Detect broadcast messages: same text+timestamp from same sender in 2+ inboxes */
+/** Detect broadcast messages: same text + ~same timestamp from same sender in 2+ inboxes.
+ *  Timestamps are rounded to the nearest second because CC writes each inbox file
+ *  sequentially, producing slight ms differences for the same broadcast. */
 function detectBroadcasts(messages: { entry: InboxEntry; inboxOwner: string }[]): Set<string> {
   const byFingerprint = new Map<string, Set<string>>();
   for (const { entry, inboxOwner } of messages) {
-    const fp = `${entry.from}\0${entry.timestamp}\0${entry.text}`;
+    const fp = `${entry.from}\0${entry.timestamp.slice(0, 19)}\0${entry.text}`;
     if (!byFingerprint.has(fp)) { byFingerprint.set(fp, new Set()); }
     byFingerprint.get(fp)!.add(inboxOwner);
   }
