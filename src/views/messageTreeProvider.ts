@@ -33,6 +33,7 @@ function getTypeBadge(typed: TypedMessage): string {
     case 'shutdown_request': return 'shutdown req';
     case 'shutdown_approved': return 'shutdown ok';
     case 'plan_approval_request': return 'plan review';
+    case 'plan_approval_response': return typed.approved ? 'plan ok' : 'plan rejected';
     default: return 'system';
   }
 }
@@ -45,6 +46,7 @@ function getTypeIcon(typed: TypedMessage): vscode.ThemeIcon {
     case 'shutdown_request': return new vscode.ThemeIcon('sign-out');
     case 'shutdown_approved': return new vscode.ThemeIcon('sign-out');
     case 'plan_approval_request': return new vscode.ThemeIcon('request-changes');
+    case 'plan_approval_response': return typed.approved ? new vscode.ThemeIcon('check') : new vscode.ThemeIcon('circle-slash');
     default: return new vscode.ThemeIcon('comment');
   }
 }

@@ -155,3 +155,33 @@ shutdown_approved:   { type, requestId, from, timestamp, paneId, backendType }
 - Inbox is a **JSON array** of messages, not individual files per message
 - `.lock` file exists in tasks directory for concurrent access control
 - `description` on tasks is truncated (appears to be ~100 chars)
+
+### v2.1.34+ (February 9, 2026) — Mock lifecycle capture
+
+Captured via `recordings/2026-02-09_mock-lifecycle/` (48 frames, 49 messages across 3 haiku agents + lead).
+
+**New typed message formats:**
+
+```
+plan_approval_request:  { type, from, requestId, planFilePath, planContent, timestamp }
+plan_approval_response: { type, requestId, approved, feedback?, timestamp, permissionMode? }
+```
+
+**New member field:**
+| Field | Type | Present On | Notes |
+|-------|------|-----------|-------|
+| `planModeRequired` | boolean | Teammates only | Present when agent spawned with `mode: "plan"` |
+
+**Broadcast messages:**
+- No special type field — broadcasts are plain text
+- Detected by: identical `text` + `timestamp` from same sender in 2+ agent inboxes
+- Sent from team-lead to all teammates simultaneously
+
+**Task file behavioral notes:**
+- Task `status` does NOT change in JSON files — stays `in_progress` even after agents complete tasks via `TaskUpdate`
+- `blocks`/`blockedBy` arrays remain empty in JSON files even when dependencies exist
+- Status tracking is done via inbox messages, not task file updates
+
+**Agent behavioral notes:**
+- Haiku agents may refuse "fake" or simulated work instructions (honesty concerns)
+- Team lead can negotiate/simplify requests to work around refusals

@@ -103,8 +103,18 @@ export interface PlanApprovalRequest {
   type: 'plan_approval_request';
   from: string;
   requestId: string;
+  planFilePath: string;
   planContent: string;
   timestamp: string;
+}
+
+export interface PlanApprovalResponse {
+  type: 'plan_approval_response';
+  requestId: string;
+  approved: boolean;
+  feedback?: string;
+  timestamp: string;
+  permissionMode?: string;
 }
 
 export type TypedMessage =
@@ -113,7 +123,8 @@ export type TypedMessage =
   | IdleNotification
   | ShutdownRequest
   | ShutdownApproved
-  | PlanApprovalRequest;
+  | PlanApprovalRequest
+  | PlanApprovalResponse;
 
 /**
  * Attempt to parse the `text` field of an InboxEntry as a typed message.

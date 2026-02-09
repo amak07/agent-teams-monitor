@@ -166,7 +166,7 @@ export class DashboardPanel {
             const lead = isTeamLead(m);
             const lifecycle = lifecycleStates.get(m.name) || 'active';
             const model = m.model.length > 30 ? m.model.slice(0, 25) + '...' : m.model;
-            return { name: m.name, colorName, lead, lifecycle, model };
+            return { name: m.name, colorName, lead, lifecycle, model, planModeRequired: !!m.planModeRequired };
           }),
           tasks: tasks.map(t => {
             const effectiveStatus = this.state.getEffectiveTaskStatus(team.name, t);
@@ -186,36 +186,45 @@ export class DashboardPanel {
               teamName: team.name,
             };
           }),
-          messages: messages
-            .sort((a, b) => b.entry.timestamp.localeCompare(a.entry.timestamp))
-            .slice(0, 50)
-            .map(({ entry, inboxOwner }) => {
-              const fromColor = getFromColorName(entry);
-              const typed = parseTypedMessage(entry.text);
-              let badgeClass = '', badgeText = '', preview = '', fullText = '';
+          messages: (() => {
+            const broadcasts = detectBroadcasts(messages);
+            return messages
+              .sort((a, b) => b.entry.timestamp.localeCompare(a.entry.timestamp))
+              .slice(0, 50)
+              .map(({ entry, inboxOwner }) => {
+                const fromColor = getFromColorName(entry);
+                const typed = parseTypedMessage(entry.text);
+                let badgeClass = '', badgeText = '', preview = '', fullText = '';
+                const fp = `${entry.from}\0${entry.timestamp}\0${entry.text}`;
+                const isBroadcast = !typed && broadcasts.has(fp);
 
-              if (typed) {
-                const badge = getTypedBadge(typed);
-                badgeClass = badge.badgeClass;
-                badgeText = badge.badgeText;
-                preview = entry.summary || getTypedPreview(typed);
-                fullText = JSON.stringify(typed, null, 2);
-              } else {
-                preview = entry.summary || entry.text.slice(0, 100).replace(/\n/g, ' ');
-                if (preview.length < entry.text.length && !entry.summary) { preview += '...'; }
-                fullText = entry.text;
-              }
+                if (typed) {
+                  const badge = getTypedBadge(typed);
+                  badgeClass = badge.badgeClass;
+                  badgeText = badge.badgeText;
+                  preview = entry.summary || getTypedPreview(typed);
+                  fullText = JSON.stringify(typed, null, 2);
+                } else {
+                  if (isBroadcast) {
+                    badgeClass = 'badge-broadcast';
+                    badgeText = 'broadcast';
+                  }
+                  preview = entry.summary || entry.text.slice(0, 100).replace(/\n/g, ' ');
+                  if (preview.length < entry.text.length && !entry.summary) { preview += '...'; }
+                  fullText = entry.text;
+                }
 
-              return {
-                id: `${entry.from}-${entry.timestamp}`,
-                from: entry.from, to: inboxOwner,
-                time: formatTime(entry.timestamp),
-                fromColor, badgeClass, badgeText,
-                preview, fullText, isTyped: !!typed,
-                fullTextHtml: typed ? '' : formatPromptHtml(entry.text),
-                teamName: team.name,
-              };
-            }),
+                return {
+                  id: `${entry.from}-${entry.timestamp}`,
+                  from: entry.from, to: inboxOwner,
+                  time: formatTime(entry.timestamp),
+                  fromColor, badgeClass, badgeText,
+                  preview, fullText, isTyped: !!typed,
+                  fullTextHtml: typed ? '' : formatPromptHtml(entry.text),
+                  teamName: team.name,
+                };
+              });
+          })(),
         };
       }),
     };
@@ -833,6 +842,7 @@ export class DashboardPanel {
     .badge-shutdown { background: color-mix(in srgb, var(--atm-status-red) 15%, transparent); color: var(--atm-status-red); }
     .badge-plan { background: color-mix(in srgb, var(--atm-status-purple) 15%, transparent); color: var(--atm-status-purple); }
     .badge-system { background: var(--atm-overlay-subtle); color: var(--vscode-descriptionForeground); }
+    .badge-broadcast { background: color-mix(in srgb, var(--atm-status-purple) 15%, transparent); color: var(--atm-status-purple); }
 
     .msg-time {
       margin-left: auto;
@@ -990,6 +1000,7 @@ export class DashboardPanel {
     .agent-status-badge.status-idle { color: var(--atm-status-yellow); }
     .agent-status-badge.status-shutting-down { color: var(--atm-status-orange); }
     .agent-status-badge.status-shutdown { color: var(--atm-status-red); }
+    .agent-status-badge.status-plan { color: var(--atm-status-purple); }
 
     /* ===== Persistent Highlight ===== */
     .highlighted {
@@ -1322,8 +1333,9 @@ export class DashboardPanel {
             var chipClass = lc === 'shutdown' ? 'agent-chip shutdown' : lc === 'idle' ? 'agent-chip idle' : lc === 'shutting_down' ? 'agent-chip shutting-down' : 'agent-chip';
             var leadStar = m.lead ? '<span class="lead-star" aria-label="Team Lead">&#9733;</span>' : '';
             var statusBadge = lc === 'shutdown' ? '<span class="agent-status-badge status-shutdown">SHUTDOWN</span>' : lc === 'idle' ? '<span class="agent-status-badge status-idle">IDLE</span>' : lc === 'shutting_down' ? '<span class="agent-status-badge status-shutting-down">SHUTTING DOWN</span>' : '';
+            var planBadge = m.planModeRequired ? '<span class="agent-status-badge status-plan">PLAN</span>' : '';
             return '<div class="' + chipClass + '"><span class="' + dotClass + '"></span>' +
-              leadStar + esc(m.name) + statusBadge +
+              leadStar + esc(m.name) + statusBadge + planBadge +
               '<span class="model">' + esc(m.model) + '</span></div>';
           }).join('');
         }
@@ -1483,8 +1495,9 @@ export class DashboardPanel {
         var chipClass = lc === 'shutdown' ? 'agent-chip shutdown' : lc === 'idle' ? 'agent-chip idle' : lc === 'shutting_down' ? 'agent-chip shutting-down' : 'agent-chip';
         var leadStar = m.lead ? '<span class="lead-star" aria-label="Team Lead">&#9733;</span>' : '';
         var statusBadge = lc === 'shutdown' ? '<span class="agent-status-badge status-shutdown">SHUTDOWN</span>' : lc === 'idle' ? '<span class="agent-status-badge status-idle">IDLE</span>' : lc === 'shutting_down' ? '<span class="agent-status-badge status-shutting-down">SHUTTING DOWN</span>' : '';
+        var planBadge = m.planModeRequired ? '<span class="agent-status-badge status-plan">PLAN</span>' : '';
         return '<div class="' + chipClass + '"><span class="' + dotClass + '"></span>' +
-          leadStar + esc(m.name) + statusBadge +
+          leadStar + esc(m.name) + statusBadge + planBadge +
           '<span class="model">' + esc(m.model) + '</span></div>';
       }).join('');
 
@@ -1562,11 +1575,13 @@ export class DashboardPanel {
       if (lifecycle === 'shutdown') { statusBadge = `<span class="agent-status-badge status-shutdown">SHUTDOWN</span>`; }
       else if (lifecycle === 'idle') { statusBadge = `<span class="agent-status-badge status-idle">IDLE</span>`; }
       else if (lifecycle === 'shutting_down') { statusBadge = `<span class="agent-status-badge status-shutting-down">SHUTTING DOWN</span>`; }
+      const planBadge = m.planModeRequired ? `<span class="agent-status-badge status-plan">PLAN</span>` : '';
       return `<div class="${chipClass}">
         <span class="${dotClass}"></span>
         ${leadStar}
         ${escapeHtml(m.name)}
         ${statusBadge}
+        ${planBadge}
         <span class="model">${escapeHtml(model)}</span>
       </div>`;
     }).join('');
@@ -1607,6 +1622,7 @@ export class DashboardPanel {
     }
 
     // Messages
+    const broadcasts = detectBroadcasts(messages);
     const sorted = messages
       .sort((a, b) => b.entry.timestamp.localeCompare(a.entry.timestamp))
       .slice(0, 50);
@@ -1617,6 +1633,8 @@ export class DashboardPanel {
       const time = formatTime(entry.timestamp);
       const fromColor = getFromColorName(entry);
       const typed = parseTypedMessage(entry.text);
+      const fp = `${entry.from}\0${entry.timestamp}\0${entry.text}`;
+      const isBroadcast = !typed && broadcasts.has(fp);
 
       let badgeHtml = '';
       let preview = '';
@@ -1628,6 +1646,9 @@ export class DashboardPanel {
         preview = entry.summary || getTypedPreview(typed);
         fullText = JSON.stringify(typed, null, 2);
       } else {
+        if (isBroadcast) {
+          badgeHtml = `<span class="msg-badge badge-broadcast">broadcast</span>`;
+        }
         preview = entry.summary || entry.text.slice(0, 100).replace(/\n/g, ' ');
         if (preview.length < entry.text.length && !entry.summary) { preview += '...'; }
         fullText = entry.text;
@@ -1713,7 +1734,7 @@ export class DashboardPanel {
 
 // --- Helpers ---
 
-function getTypedBadge(typed: { type: string; approve?: boolean }): { badgeClass: string; badgeText: string } {
+function getTypedBadge(typed: { type: string; approve?: boolean; approved?: boolean }): { badgeClass: string; badgeText: string } {
   switch (typed.type) {
     case 'permission_request':
       return { badgeClass: 'badge-permission', badgeText: 'permission' };
@@ -1729,17 +1750,40 @@ function getTypedBadge(typed: { type: string; approve?: boolean }): { badgeClass
       return { badgeClass: 'badge-shutdown', badgeText: 'shutdown ok' };
     case 'plan_approval_request':
       return { badgeClass: 'badge-plan', badgeText: 'plan review' };
+    case 'plan_approval_response':
+      return typed.approved
+        ? { badgeClass: 'badge-approved', badgeText: 'plan ok' }
+        : { badgeClass: 'badge-denied', badgeText: 'plan rejected' };
     default:
       return { badgeClass: 'badge-system', badgeText: 'system' };
   }
 }
 
-function getTypedPreview(typed: { type: string; description?: string; reason?: string; planContent?: string; idleReason?: string }): string {
+function getTypedPreview(typed: { type: string; description?: string; reason?: string; planContent?: string; idleReason?: string; feedback?: string; approved?: boolean }): string {
+  if (typed.type === 'plan_approval_response') {
+    if (typed.feedback) { return typed.feedback; }
+    return typed.approved ? 'Plan approved' : 'Plan rejected';
+  }
   if (typed.description) { return typed.description; }
   if (typed.reason) { return typed.reason; }
   if (typed.planContent) { return typed.planContent.slice(0, 100); }
   if (typed.idleReason) { return typed.idleReason; }
   return typed.type.replace(/_/g, ' ');
+}
+
+/** Detect broadcast messages: same text+timestamp from same sender in 2+ inboxes */
+function detectBroadcasts(messages: { entry: InboxEntry; inboxOwner: string }[]): Set<string> {
+  const byFingerprint = new Map<string, Set<string>>();
+  for (const { entry, inboxOwner } of messages) {
+    const fp = `${entry.from}\0${entry.timestamp}\0${entry.text}`;
+    if (!byFingerprint.has(fp)) { byFingerprint.set(fp, new Set()); }
+    byFingerprint.get(fp)!.add(inboxOwner);
+  }
+  const broadcasts = new Set<string>();
+  for (const [fp, owners] of byFingerprint) {
+    if (owners.size >= 2) { broadcasts.add(fp); }
+  }
+  return broadcasts;
 }
 
 /** Escape HTML then apply lightweight markdown: **bold** and `code` */

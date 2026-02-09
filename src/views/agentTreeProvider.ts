@@ -88,6 +88,9 @@ export class AgentTreeProvider implements vscode.TreeDataProvider<AgentTreeEleme
     if (member.agentType && member.agentType !== 'team-lead') {
       parts.push(member.agentType);
     }
+    if (member.planModeRequired) {
+      parts.push('plan mode');
+    }
     if (member.model) {
       parts.push(member.model);
     }
