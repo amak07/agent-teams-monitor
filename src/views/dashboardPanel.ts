@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import MarkdownIt from 'markdown-it';
 import { TeamStateManager } from '../state/teamState';
 import { TeamConfig, TeamMember, AgentTask, InboxEntry, isTeamLead, parseTypedMessage } from '../types';
+import { formatTime, deriveTeamStatus } from '../utils';
 
 const md = new MarkdownIt({ html: false, breaks: true, linkify: true });
 
@@ -16,14 +17,6 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function formatTime(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-}
 
 /** Returns a CSS class suffix: 'blue', 'green', 'lead', 'unknown', etc. */
 function getMemberColorName(member: TeamMember): string {
@@ -160,16 +153,7 @@ export class DashboardPanel {
           this.state.getEffectiveTaskStatus(team.name, t) === 'completed'
         ).length;
 
-        // Derive overall team status from agent lifecycles
-        const nonLeadLifecycles = [...lifecycleStates.entries()]
-          .filter(([name]) => !team.members.find(m => isTeamLead(m) && m.name === name))
-          .map(([, state]) => state);
-        let teamStatus: 'active' | 'winding_down' | 'completed' = 'active';
-        if (nonLeadLifecycles.length > 0 && nonLeadLifecycles.every(s => s === 'shutdown')) {
-          teamStatus = 'completed';
-        } else if (nonLeadLifecycles.some(s => s === 'shutting_down' || s === 'shutdown')) {
-          teamStatus = 'winding_down';
-        }
+        const teamStatus = deriveTeamStatus(lifecycleStates, team.members);
 
         return {
           name: team.name,
@@ -1504,15 +1488,7 @@ export class DashboardPanel {
 
     // Derive team status
     const lifecycleStates = this.state.getAgentLifecycleStates(team.name);
-    const nonLeadLifecycles = [...lifecycleStates.entries()]
-      .filter(([name]) => !team.members.find(m => isTeamLead(m) && m.name === name))
-      .map(([, s]) => s);
-    let teamStatus: 'active' | 'winding_down' | 'completed' = 'active';
-    if (nonLeadLifecycles.length > 0 && nonLeadLifecycles.every(s => s === 'shutdown')) {
-      teamStatus = 'completed';
-    } else if (nonLeadLifecycles.some(s => s === 'shutting_down' || s === 'shutdown')) {
-      teamStatus = 'winding_down';
-    }
+    const teamStatus = deriveTeamStatus(lifecycleStates, team.members);
 
     // Agents strip
     const agentsHtml = team.members.map(m => {

@@ -137,6 +137,4 @@ export function isTeamLead(member: TeamMember): boolean {
   return member.agentType === 'team-lead';
 }
 
-export function getAgentDisplayColor(member: TeamMember): string | undefined {
-  return member.color;
-}
+

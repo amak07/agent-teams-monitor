@@ -5,6 +5,7 @@ import * as os from 'os';
 import { Frame, Manifest } from './types';
 import { TeamStateManager } from '../state/teamState';
 import { TeamConfig, AgentTask, InboxEntry } from '../types';
+import { formatDuration } from '../utils';
 
 const CLAUDE_DIR = path.join(os.homedir(), '.claude');
 const TEAMS_DIR = path.join(CLAUDE_DIR, 'teams');
@@ -21,6 +22,7 @@ interface RecordingInfo {
 export class ReplayManager implements vscode.Disposable {
   private _isReplaying = false;
   private _cancellation: vscode.CancellationTokenSource | undefined;
+  private _cleanupTimer: NodeJS.Timeout | undefined;
   private _statusBarItem: vscode.StatusBarItem;
   private _writtenTeams = new Set<string>();
 
@@ -150,7 +152,7 @@ export class ReplayManager implements vscode.Disposable {
         this.writeFrame(frame);
 
         // Update status bar
-        const elapsed = this.formatDuration(frame.elapsed_ms);
+        const elapsed = formatDuration(frame.elapsed_ms);
         const speedLabel = speed === 0 ? 'instant' : `${speed}x`;
         const recLabel = recordingCount > 1 ? ` · ${recordingCount} recordings` : '';
         this._statusBarItem.text = `$(play) Replay: ${i + 1}/${frames.length} (${speedLabel})`;
@@ -179,7 +181,8 @@ export class ReplayManager implements vscode.Disposable {
         this.cleanup();
       } else {
         // Auto-cleanup after 30s if no choice made
-        setTimeout(() => {
+        this._cleanupTimer = setTimeout(() => {
+          this._cleanupTimer = undefined;
           if (this._writtenTeams.size > 0) { this.cleanup(); }
         }, 30000);
       }
@@ -317,24 +320,23 @@ export class ReplayManager implements vscode.Disposable {
   private cancellableSleep(ms: number, token: vscode.CancellationToken): Promise<void> {
     return new Promise(resolve => {
       if (token.isCancellationRequested) { resolve(); return; }
-      const timer = setTimeout(resolve, ms);
       const listener = token.onCancellationRequested(() => {
         clearTimeout(timer);
         listener.dispose();
         resolve();
       });
+      const timer = setTimeout(() => {
+        listener.dispose();
+        resolve();
+      }, ms);
     });
   }
 
-  private formatDuration(ms: number): string {
-    const s = Math.floor(ms / 1000);
-    const m = Math.floor(s / 60);
-    return m > 0 ? `${m}m ${s % 60}s` : `${s}s`;
-  }
 
   dispose(): void {
     this._cancellation?.cancel();
     this._cancellation?.dispose();
+    if (this._cleanupTimer) { clearTimeout(this._cleanupTimer); }
     this._statusBarItem.dispose();
   }
 }

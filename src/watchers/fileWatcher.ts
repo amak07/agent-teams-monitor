@@ -19,7 +19,6 @@ export class FileWatcher {
   private teamsWatcher: fs.FSWatcher | undefined;
   private tasksWatcher: fs.FSWatcher | undefined;
   private debounceTimers = new Map<string, NodeJS.Timeout>();
-  private watching = false;
 
   constructor(private state: TeamStateManager) {}
 
@@ -79,7 +78,6 @@ export class FileWatcher {
       } else {
         this.tasksWatcher = watcher;
       }
-      this.watching = true;
     } catch (err) {
       console.warn(`Failed to watch ${dir}:`, err);
     }
@@ -233,10 +231,6 @@ export class FileWatcher {
   }
 
   // --- Lifecycle ---
-
-  isWatching(): boolean {
-    return this.watching;
-  }
 
   dispose(): void {
     if (this.pollTimer) { clearInterval(this.pollTimer); }

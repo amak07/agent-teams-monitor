@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { TeamStateManager } from '../state/teamState';
 import { InboxEntry, parseTypedMessage, TypedMessage } from '../types';
+import { formatTime } from '../utils';
 
 type MessageTreeElement = InboxGroup | MessageNode;
 
@@ -44,14 +45,6 @@ function getTypeIcon(typed: TypedMessage): vscode.ThemeIcon {
   }
 }
 
-function formatTime(isoTimestamp: string): string {
-  try {
-    const d = new Date(isoTimestamp);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '';
-  }
-}
 
 export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeElement> {
   private _onDidChangeTreeData = new vscode.EventEmitter<MessageTreeElement | undefined>();
@@ -159,10 +152,9 @@ export class MessageTreeProvider implements vscode.TreeDataProvider<MessageTreeE
     if (typed) {
       const badge = getTypeBadge(typed);
       if (this.groupByInbox) {
-        // In inbox-grouped mode, don't repeat the recipient
         label = `${time} [${badge}] ${entry.from}`;
       } else {
-        label = `${time} [${badge}] ${entry.from}`;
+        label = `${time} [${badge}] ${entry.from} → ${inboxOwner}`;
       }
       description = entry.summary || `→ ${inboxOwner}`;
       icon = getTypeIcon(typed);
