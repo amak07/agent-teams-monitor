@@ -223,7 +223,12 @@
     "mock": "node out/test/mockData.js",
     "mock:clean": "node out/test/mockData.js clean",
     "record": "node out/scripts/record.js",
-    "replay": "node out/scripts/replay.js"
+    "replay": "node out/scripts/replay.js",
+    "simulate": "node out/scripts/simulate.js",
+    "simulate:clean": "node out/scripts/simulateClean.js",
+    "simulate:quick": "node out/scripts/simulate.js --scenario quick",
+    "simulate:lifecycle": "node out/scripts/simulate.js --scenario lifecycle",
+    "simulate:parallel": "node out/scripts/simulate.js --parallel"
   },
   "devDependencies": {
     "@types/markdown-it": "^14.1.2",
