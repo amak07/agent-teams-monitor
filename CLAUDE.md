@@ -1,6 +1,6 @@
 # Agent Teams Monitor
 
-VS Code extension that monitors Claude Code Agent Teams by reading JSON files from `~/.claude/teams/` and `~/.claude/tasks/`. Read-only observation — never writes to CC's files (except replay, which writes temporary frames).
+VS Code extension that monitors Claude Code Agent Teams by reading JSON files from `~/.claude/teams/` and `~/.claude/tasks/`. Read-only observation — never writes to CC's files.
 
 ## Build & Test
 
@@ -12,13 +12,27 @@ npm.cmd run record       # Record a live agent team session
 npm.cmd run replay       # CLI replay of a recording
 ```
 
-Install after packaging:
+### Simulation Harness
+
+Writes files progressively to `~/.claude/teams/` and `~/.claude/tasks/` to simulate real CC sessions. Tests the full pipeline: detection, auto-recording, notifications, replay.
+
+```bash
+npm.cmd run simulate             # Run all scenarios sequentially
+npm.cmd run simulate:quick       # Quick session (~10s, 5 events)
+npm.cmd run simulate:lifecycle   # Full lifecycle (~30s, 15 events, 3 agents)
+npm.cmd run simulate:parallel    # Both scenarios concurrently, 3s stagger
+npm.cmd run simulate:clean       # Remove all test artifacts (teams, tasks, recordings, history)
+```
+
+Scenarios use `sim-` prefix for team names. Cleanup only touches those prefixes (plus mock data teams).
+
+### Install & Verify
 
 ```bash
 "/c/Users/abelm/AppData/Local/Programs/Microsoft VS Code/bin/code" --install-extension agent-teams-monitor-0.1.0.vsix --force
 ```
 
-No test framework yet. Verify changes by: compile, package, install, reload VS Code, run a replay.
+Verify: compile, package, install, reload VS Code, run `simulate:parallel`, watch dashboard.
 
 ## Architecture
 
@@ -27,7 +41,7 @@ No test framework yet. Verify changes by: compile, package, install, reload VS C
 - **`src/state/teamState.ts`** — Central state store. Members are merge-on-update (CC removes agents from config at shutdown, we persist them)
 - **`src/views/dashboardPanel.ts`** — Main webview. Uses incremental DOM patching via postMessage (initial HTML render + subsequent `updateData` messages). All CSS is inline. All JS is inside a template literal — **backticks must be escaped as `\x60` in webview JS code**
 - **`src/views/agent|task|messageTreeProvider.ts`** — Sidebar tree views
-- **`src/replay/`** — In-extension replay system (writes frames to disk, file watcher picks them up)
+- **`src/replay/`** — Pure in-memory replay system + auto-recorder (records live sessions to globalStorageUri)
 - **`src/extension.ts`** — Entry point, command registration
 
 ## Key Schema Gotchas
