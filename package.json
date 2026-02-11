@@ -211,6 +211,12 @@
           "type": "string",
           "default": "",
           "description": "Custom path for auto-recorded sessions. Leave empty to use VS Code globalStorage (recommended)."
+        },
+        "agentTeams.retentionDays": {
+          "type": "number",
+          "default": 30,
+          "minimum": 0,
+          "description": "Number of days to keep session history. Set to 0 to keep forever."
         }
       }
     }

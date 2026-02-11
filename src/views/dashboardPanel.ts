@@ -3,6 +3,7 @@ import MarkdownIt from 'markdown-it';
 import { TeamStateManager } from '../state/teamState';
 import { TeamConfig, TeamMember, AgentTask, InboxEntry, isTeamLead, parseTypedMessage } from '../types';
 import { formatTime, deriveTeamStatus } from '../utils';
+import { SessionArchiver } from '../history/sessionArchiver';
 
 const md = new MarkdownIt({ html: false, breaks: true, linkify: true });
 
@@ -31,12 +32,18 @@ function getFromColorName(entry: InboxEntry): string {
 
 export class DashboardPanel {
   private static instance: DashboardPanel | undefined;
+  private static archiver: SessionArchiver | undefined;
   private panel: vscode.WebviewPanel;
   private disposables: vscode.Disposable[] = [];
   private updateTimer: ReturnType<typeof setTimeout> | undefined;
   private _initialized = false;
   private _webviewReady = false;
   private _pendingScrollTo: { type: 'task' | 'message'; id: string; team: string } | undefined;
+
+  /** Set the archiver so the dashboard can show session history */
+  static setArchiver(archiver: SessionArchiver): void {
+    DashboardPanel.archiver = archiver;
+  }
 
   private constructor(
     panel: vscode.WebviewPanel,
@@ -142,8 +149,26 @@ export class DashboardPanel {
     const allTasks = this.state.getFilteredTasks();
     const allMessages = this.state.getFilteredMessages();
 
+    // Session history from archiver
+    const sessionHistory = DashboardPanel.archiver?.getSessionHistory() ?? [];
+
     return {
       anyReplayActive: this.state.isAnyReplayActive(),
+      sessionHistory: sessionHistory.map(s => ({
+        teamName: s.teamName,
+        teamDescription: s.teamDescription,
+        startedAt: s.startedAt,
+        duration: s.duration,
+        lead: s.lead,
+        agentCount: s.agents.length,
+        agents: s.agents.map(a => ({ name: a.name, model: a.model })),
+        totalTasks: s.stats.totalTasks,
+        completedTasks: s.stats.completedTasks,
+        messageCount: s.stats.messageCount,
+        outcome: s.outcome,
+        recordingPath: s.recordingPath,
+        frameCount: s.frameCount,
+      })),
       teams: teams.map(team => {
         const replayState = this.state.getTeamReplayState(team.name);
         const tasks = allTasks.get(team.name) ?? [];
@@ -591,6 +616,123 @@ export class DashboardPanel {
       width: 14px;
       height: 14px;
     }
+
+    /* ===== History Section ===== */
+    .history-divider {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 24px 0 16px;
+      opacity: 0.6;
+    }
+    .history-divider::before,
+    .history-divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--vscode-panel-border);
+    }
+    .history-title {
+      font-size: 0.85em;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .history-card {
+      border: 1px solid var(--vscode-panel-border);
+      border-radius: 6px;
+      margin-bottom: 10px;
+      opacity: 0.6;
+      transition: opacity 150ms;
+    }
+    .history-card:hover {
+      opacity: 0.85;
+    }
+    .history-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: var(--vscode-sideBar-background);
+    }
+    .history-name {
+      font-weight: 600;
+      font-size: 1em;
+    }
+    .history-meta {
+      margin-left: auto;
+      font-size: 0.8em;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      opacity: 0.8;
+    }
+    .history-outcome {
+      font-size: 0.7em;
+      padding: 1px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .history-outcome.ho-completed {
+      background: color-mix(in srgb, var(--atm-status-green) 15%, transparent);
+      color: var(--atm-status-green);
+    }
+    .history-outcome.ho-partial {
+      background: color-mix(in srgb, var(--atm-status-yellow) 15%, transparent);
+      color: var(--atm-status-yellow);
+    }
+    .history-outcome.ho-abandoned {
+      background: color-mix(in srgb, var(--atm-status-red) 15%, transparent);
+      color: var(--atm-status-red);
+    }
+    .history-outcome.ho-no-tasks {
+      background: color-mix(in srgb, var(--vscode-descriptionForeground) 15%, transparent);
+      color: var(--vscode-descriptionForeground);
+    }
+    .history-details {
+      padding: 8px 16px 10px;
+      font-size: 0.85em;
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+      border-top: 1px solid var(--vscode-panel-border);
+    }
+    .history-details span {
+      opacity: 0.7;
+    }
+    .history-replay-btn {
+      margin-left: auto;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 10px;
+      border: 1px solid var(--vscode-button-secondaryBackground, var(--vscode-panel-border));
+      background: transparent;
+      color: var(--vscode-foreground);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.85em;
+      opacity: 0.8;
+      transition: opacity 150ms, background 150ms;
+    }
+    .history-replay-btn:hover {
+      opacity: 1;
+      background: var(--vscode-toolbar-hoverBackground);
+    }
+    .history-replay-btn svg {
+      width: 12px;
+      height: 12px;
+    }
+    .history-empty {
+      text-align: center;
+      padding: 20px;
+      opacity: 0.4;
+      font-size: 0.9em;
+    }
+
     .team-body {
       overflow: hidden;
       transition: max-height 200ms ease;
@@ -1240,6 +1382,8 @@ export class DashboardPanel {
     ${teamsHtml}
   </div>
 
+  <div id="historyContainer"></div>
+
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
 
@@ -1501,6 +1645,18 @@ export class DashboardPanel {
         return;
       }
 
+      // History replay button
+      const historyBtn = e.target.closest('.history-replay-btn');
+      if (historyBtn) {
+        e.stopPropagation();
+        var recordingDir = historyBtn.dataset.recordingDir;
+        var teamName = historyBtn.dataset.teamName;
+        if (recordingDir && teamName) {
+          vscode.postMessage({ command: 'replayTeam', teamName: teamName, recordingDir: recordingDir });
+        }
+        return;
+      }
+
       // Collapsible messages section bar
       var msgSectionBar = e.target.closest('.msg-section-bar');
       if (msgSectionBar) {
@@ -1634,9 +1790,6 @@ export class DashboardPanel {
         if (!emptyEl) {
           container.innerHTML = '<div class="empty-state"><div class="empty-title">No Agent Teams Detected</div><div class="empty-text">Start an Agent Team in Claude Code to see it here.</div></div>';
         }
-        // Update filter dropdown
-        updateFilterOptions(data.teams);
-        return;
       } else if (emptyEl) {
         emptyEl.remove();
       }
@@ -1683,6 +1836,9 @@ export class DashboardPanel {
       updateFilterOptions(data.teams);
       // Re-apply filter
       if (filterEl) applyFilter(filterEl.value);
+
+      // Update history section
+      updateHistorySection(data.sessionHistory || []);
     }
 
     function updateFilterOptions(teams) {
@@ -1947,6 +2103,67 @@ export class DashboardPanel {
       }
       html += '</div>';
       return html;
+    }
+
+    // ---- History section ----
+    function updateHistorySection(sessions) {
+      var historyContainer = document.getElementById('historyContainer');
+      if (!historyContainer) return;
+
+      if (!sessions || sessions.length === 0) {
+        historyContainer.innerHTML = '';
+        return;
+      }
+
+      // Sort by startedAt descending (most recent first)
+      var sorted = sessions.slice().sort(function(a, b) {
+        return b.startedAt.localeCompare(a.startedAt);
+      });
+
+      var html = '<div class="history-divider"><span class="history-title">Recent Sessions</span></div>';
+      for (var i = 0; i < sorted.length; i++) {
+        html += renderHistoryCard(sorted[i]);
+      }
+      historyContainer.innerHTML = html;
+    }
+
+    function renderHistoryCard(session) {
+      var outcomeClass = 'ho-' + (session.outcome || 'no-tasks').replace(/_/g, '-');
+      var outcomeLabel = session.outcome === 'completed' ? 'completed'
+        : session.outcome === 'partial' ? 'partial'
+        : session.outcome === 'abandoned' ? 'abandoned'
+        : 'no tasks';
+
+      var dateStr = '';
+      try {
+        var d = new Date(session.startedAt);
+        dateStr = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' +
+          d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      } catch(e) { dateStr = session.startedAt; }
+
+      var agentNames = (session.agents || []).map(function(a) { return esc(a.name); }).join(', ');
+
+      var replayBtn = '';
+      if (session.recordingPath && session.frameCount > 0) {
+        replayBtn = '<button class="history-replay-btn" data-action="replayHistory" data-recording-dir="' + esc(session.recordingPath) + '" data-team-name="' + esc(session.teamName) + '">' +
+          ICON_REPLAY + ' Replay (' + session.frameCount + ' frames)</button>';
+      }
+
+      return '<div class="history-card">' +
+        '<div class="history-header">' +
+        '<span class="history-name">' + esc(session.teamName) + '</span>' +
+        '<div class="history-meta">' +
+        '<span class="history-outcome ' + outcomeClass + '">' + outcomeLabel + '</span>' +
+        '<span>' + esc(dateStr) + '</span>' +
+        '</div></div>' +
+        '<div class="history-details">' +
+        '<span>' + session.agentCount + ' agent' + (session.agentCount !== 1 ? 's' : '') + '</span>' +
+        '<span>' + session.completedTasks + '/' + session.totalTasks + ' tasks</span>' +
+        '<span>' + session.messageCount + ' msg' + (session.messageCount !== 1 ? 's' : '') + '</span>' +
+        '<span>' + esc(session.duration) + '</span>' +
+        (agentNames ? '<span title="Agents">' + agentNames + '</span>' : '') +
+        replayBtn +
+        '</div></div>';
     }
 
     function renderTeamCard(team) {

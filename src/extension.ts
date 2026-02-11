@@ -33,6 +33,13 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  // Make archiver available to the dashboard for session history
+  DashboardPanel.setArchiver(archiver);
+
+  // Clean expired sessions based on retention policy
+  const retentionDays = vscode.workspace.getConfiguration('agentTeams').get<number>('retentionDays', 30);
+  archiver.cleanExpiredSessions(retentionDays);
+
   // Tree views
   const agentTree = new AgentTreeProvider(state);
   const taskTree = new TaskTreeProvider(state);
@@ -154,6 +161,7 @@ export function activate(context: vscode.ExtensionContext) {
   let autoRecorder: AutoRecorder | undefined;
   if (autoRecordEnabled) {
     autoRecorder = new AutoRecorder(state, autoRecordDir);
+    archiver.setAutoRecorder(autoRecorder);
   }
 
   // Hook auto-recorder into file watcher events

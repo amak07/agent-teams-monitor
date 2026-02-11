@@ -142,6 +142,31 @@ export function parseTypedMessage(text: string): TypedMessage | null {
   return null;
 }
 
+// --- Session History (persisted to sessions.jsonl) ---
+
+export interface SessionRecord {
+  version: number;
+  teamName: string;
+  teamDescription: string;
+  startedAt: string;
+  endedAt: string;
+  duration: string;
+  lead: string;
+  agents: { name: string; model: string; role: string }[];
+  tasks: { title: string; status: string; owner: string }[];
+  stats: {
+    totalTasks: number;
+    completedTasks: number;
+    messageCount: number;
+    broadcastCount: number;
+    planApprovals: number;
+  };
+  outcome: string;
+  notes: string;
+  recordingPath: string;
+  frameCount: number;
+}
+
 // --- Helpers ---
 
 export function isTeamLead(member: TeamMember): boolean {
